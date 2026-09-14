@@ -20,10 +20,13 @@ python -m venv $Venv
 & (Join-Path $Venv 'Scripts\python.exe') -m pip install -r (Join-Path $AppDir 'requirements.txt')
 
 if (-not (Test-Path (Join-Path $AppDir '.env'))) {
-  $secret = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+  # Generate a real Fernet key after cryptography has been installed.
+  $secret = (& (Join-Path $Venv 'Scripts\python.exe') -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())").Trim()
+  $DataDir = Join-Path $AppDir 'data'
   @"
 APP_SECRET=$secret
-DATABASE_URL=sqlite:///$($AppDir.Replace('\','/'))/data/c-ebot.db
+DATA_DIR=$($DataDir.Replace('\','/'))
+DATABASE_URL=sqlite:///$($DataDir.Replace('\','/'))/c-ebot.db
 BASE_URL=http://localhost:8080
 SYNC_INTERVAL_SECONDS=30
 DISCORD_BOT_TOKEN=
