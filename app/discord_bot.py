@@ -31,8 +31,16 @@ class CEBot(discord.Client):
     async def setup_hook(self) -> None:
         settings = load_secrets(); guild_id = settings.get("discord_guild_id", "").strip()
         if guild_id.isdigit():
-            guild = discord.Object(id=int(guild_id)); self.tree.copy_global_to(guild=guild); await self.tree.sync(guild=guild)
-        else: await self.tree.sync()
+            guild = discord.Object(id=int(guild_id))
+            # Keep commands guild-scoped for fast updates and remove any stale
+            # guild/global registrations left by previous sync configurations.
+            self.tree.clear_commands(guild=guild)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync()
+        else:
+            await self.tree.sync()
 
     async def on_ready(self) -> None:
         if self.ready_once: return
@@ -220,7 +228,7 @@ async def panel(interaction: discord.Interaction) -> None:
 
 
 class ControlPanel(discord.ui.View):
-    def __init__(self) -> None: super().__init__(timeout=300)
+    def __init__(self, *, timeout=300): super().__init__(timeout=timeout)
     async def _guard(self, interaction: discord.Interaction) -> bool:
         if not is_admin(interaction): await deny(interaction); return False
         return True
