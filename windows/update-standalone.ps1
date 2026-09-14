@@ -55,6 +55,15 @@ try {
   if (Test-Path (Join-Path $SourceRoot.FullName 'windows\update-standalone.ps1')) {
     Copy-Item (Join-Path $SourceRoot.FullName 'windows\update-standalone.ps1') (Join-Path $AppDir 'update-standalone.ps1') -Force
   }
+
+  $MainPy = Join-Path $AppDir 'app\main.py'
+  if (Test-Path $MainPy) {
+    $mainText = Get-Content -Path $MainPy -Raw
+    $mainText = $mainText.Replace('attrs("chaster_lock_id", True)', 'attrs("chaster_lock_id", False)')
+    Set-Content -Path $MainPy -Value $mainText -Encoding UTF8
+    Log "Applied Chaster Lock ID editable-field fix"
+  }
+
   Set-Content -Path (Join-Path $AppDir '.cebot_commit') -Value $TargetSha -Encoding ASCII
 
   Log "Updating Python dependencies"
