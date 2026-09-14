@@ -13,7 +13,7 @@ from .secrets import factory_reset, has_secrets, save_secrets, VAULT_PATH, _fern
 from .sync_engine import manager
 
 APP_NAME = "c-ebot"
-app = FastAPI(title="c-ebot", version="0.2.4")
+app = FastAPI(title="c-ebot", version="0.2.5")
 
 
 def fmt(seconds: int | None) -> str:
@@ -36,7 +36,7 @@ def when(ts: float | None) -> str:
 
 
 def page(title: str, body: str, refresh: bool = False) -> str:
-    refresh_tag = "<meta http-equiv='refresh' content='10'>" if refresh else ""
+    refresh_tag = "<meta http-equiv='refresh' content='30'>" if refresh else ""
     return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
 {refresh_tag}<title>{title}</title><style>
 body{{font-family:system-ui,sans-serif;max-width:1100px;margin:30px auto;padding:0 18px;background:#f5f6f8;color:#17202a}}
@@ -65,9 +65,9 @@ async def dashboard() -> str:
 <p><strong>{html.escape(s.message)}</strong></p><p>Auto Sync: <strong>{'ON' if s.auto_sync else 'OFF'}</strong> · Paused: <strong>{'YES' if s.paused else 'NO'}</strong></p>
 <p>Last check: {when(s.last_check)} · Next check: {when(s.next_check)}</p></div>
 <div class='grid'>
-<div class='card'><h3>Chaster</h3><div class='timer'>{fmt(s.chaster_seconds)}</div><small>Remaining time</small></div>
-<div class='card'><h3>EmlaLock</h3><div class='timer'>{fmt(s.emlalock_seconds)}</div><small>Remaining time</small></div>
-<div class='card'><h3>Highest / Target</h3><div class='timer'>{fmt(s.target_seconds)}</div><small>Normal sync never shortens the higher timer</small></div>
+<div class='card'><h3>Chaster</h3><div class='timer countdown' data-seconds='{'' if s.chaster_seconds is None else int(s.chaster_seconds)}'>{fmt(s.chaster_seconds)}</div><small>Remaining time</small></div>
+<div class='card'><h3>EmlaLock</h3><div class='timer countdown' data-seconds='{'' if s.emlalock_seconds is None else int(s.emlalock_seconds)}'>{fmt(s.emlalock_seconds)}</div><small>Remaining time</small></div>
+<div class='card'><h3>Highest / Target</h3><div class='timer countdown' data-seconds='{'' if s.target_seconds is None else int(s.target_seconds)}'>{fmt(s.target_seconds)}</div><small>Normal sync never shortens the higher timer</small></div>
 </div>
 <div class='card'><h3>Controls</h3><div class='actions'>
 <form method='post' action='/sync'><button>Sync Now</button></form>
@@ -86,6 +86,36 @@ async def dashboard() -> str:
 <form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><button type='submit'>Import encrypted backup</button></form>
 <small>Import replaces the current encrypted vault. The backup must have been created by c-ebot with the same APP_SECRET.</small></div>
 <div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted credential vault only; it does not alter either service account or lock.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET' autocomplete='off'><button>Factory reset bot</button></form></div>
+<script>
+(function() {{
+  const timers = Array.from(document.querySelectorAll('.countdown'));
+  const values = timers.map(el => {{
+    const raw = el.dataset.seconds;
+    return raw === '' ? null : Math.max(0, Number(raw));
+  }});
+  const started = Date.now();
+  function format(total) {{
+    total = Math.max(0, Math.floor(total));
+    const d = Math.floor(total / 86400); total %= 86400;
+    const h = Math.floor(total / 3600); total %= 3600;
+    const m = Math.floor(total / 60); const s = total % 60;
+    const parts = [];
+    if (d) parts.push(d + 'd');
+    if (h || d) parts.push(h + 'h');
+    if (m || h || d) parts.push(m + 'm');
+    parts.push(s + 's');
+    return parts.join(' ');
+  }}
+  function tick() {{
+    const elapsed = (Date.now() - started) / 1000;
+    timers.forEach((el, i) => {{
+      if (values[i] !== null) el.textContent = format(values[i] - elapsed);
+    }});
+  }}
+  tick();
+  setInterval(tick, 250);
+}})();
+</script>
 """
     return page("c-ebot — Live Sync", body, refresh=True)
 
