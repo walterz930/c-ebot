@@ -132,35 +132,35 @@ async def setup_form() -> str:
         + "<div class='card'><h3>Chaster</h3>"
         + "<label>Developer token (wearer / primary account)<br><input name='chaster_token' "
         + attrs("chaster_token", True, True)
-        + ""></label><br><br>"
+        + '></label><br><br>'
         + "<label>Lock ID<br><input name='chaster_lock_id' "
         + attrs("chaster_lock_id", True)
-        + ""></label><hr><h4>Chaster permissions required</h4>"
+        + '></label><hr><h4>Chaster permissions required</h4>'
         + "<p><strong>For normal sync/add-time:</strong> the API token needs the <code>locks</code> scope and the lock contract must grant the token's account <strong>Add time</strong>.</p>"
         + "<p><strong>For subtract-time:</strong> the account making the Chaster request must have <strong>Remove time</strong>. Chaster's Standard preset normally grants Remove time to the keyholder, not the wearer.</p>"
         + "<label>Chaster keyholder access token (required if this bot must remove Chaster time as keyholder)<br><input name='chaster_keyholder_token' "
         + attrs("chaster_keyholder_token", False, True)
-        + ""></label><p><small>The keyholder token should belong to the Chaster keyholder account and be authorized with the <code>keyholder</code> scope. Leave it empty only if the primary token's account itself has Remove time.</small></p></div>"
+        + '></label><p><small>The keyholder token should belong to the Chaster keyholder account and be authorized with the <code>keyholder</code> scope. Leave it empty only if the primary token\'s account itself has Remove time.</small></p></div>'
         + "<div class='card'><h3>EmlaLock</h3><label>User ID<br><input name='emlalock_user_id' "
         + attrs("emlalock_user_id", True)
-        + ""></label><br><br><label>API key<br><input name='emlalock_api_key' "
+        + '></label><br><br><label>API key<br><input name=\'emlalock_api_key\' '
         + attrs("emlalock_api_key", True, True)
-        + ""></label><br><br><label>Keyholder API key (required for subtract)<br><input name='emlalock_keyholder_api_key' "
+        + '></label><br><br><label>Keyholder API key (required for subtract)<br><input name=\'emlalock_keyholder_api_key\' '
         + attrs("emlalock_keyholder_api_key", False, True)
-        + ""></label></div>"
+        + '></label></div>'
         + "<div class='card'><h3>Discord (optional)</h3><p>c-ebot uses Discord slash commands, so <strong>Message Content Intent is not required</strong>. The bot only requests the Guilds intent.</p>"
         + "<p><strong>Need the Discord details?</strong> <a href='https://discord.com/developers/applications' target='_blank' rel='noopener noreferrer'>Open Discord Developer Portal ↗</a> · <a href='https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID' target='_blank' rel='noopener noreferrer'>How to find Server, Channel & User IDs ↗</a></p>"
         + "<label>Bot token<br><input name='discord_bot_token' "
         + attrs("discord_bot_token", False, True)
-        + ""></label><br><br><label>Application / Client ID<br><input name='discord_application_id' inputmode='numeric' "
+        + '></label><br><br><label>Application / Client ID<br><input name=\'discord_application_id\' inputmode=\'numeric\' '
         + attrs("discord_application_id")
-        + ""></label><br><br><label>Server / Guild ID<br><input name='discord_guild_id' inputmode='numeric' "
+        + '></label><br><br><label>Server / Guild ID<br><input name=\'discord_guild_id\' inputmode=\'numeric\' '
         + attrs("discord_guild_id")
-        + ""></label><br><br><label>Log / alert channel ID<br><input name='discord_channel_id' inputmode='numeric' "
+        + '></label><br><br><label>Log / alert channel ID<br><input name=\'discord_channel_id\' inputmode=\'numeric\' '
         + attrs("discord_channel_id")
-        + ""></label><br><br><label>Admin user IDs<br><input name='discord_admin_user_ids' "
+        + '></label><br><br><label>Admin user IDs<br><input name=\'discord_admin_user_ids\' '
         + attrs("discord_admin_user_ids")
-        + ""></label><p><small>Admin IDs control /sync, /addtime, /subtracttime and /logs.</small></p>"
+        + '></label><p><small>Admin IDs control /sync, /addtime, /subtracttime and /logs.</small></p>'
         + (f"<p><strong>Invite link:</strong> <a href='{html.escape(invite)}' target='_blank' rel='noopener noreferrer'>Add c-ebot to your server</a></p>" if invite else "<p>Enter the Application / Client ID to generate the server invite link.</p>")
         + "<p><strong>Discord permissions:</strong> View Channel, Send Messages, Embed Links, Read Message History. Scopes: <code>bot</code> and <code>applications.commands</code>.</p><p><strong>Developer Portal:</strong> create the application, add a Bot, copy the Bot Token and Application ID, then invite it to the server.</p>"
         + f"<p><strong>Connection:</strong> {'configured' if discord_configured else 'not configured'}</p></div>"
