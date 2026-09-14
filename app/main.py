@@ -8,10 +8,10 @@ from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .secrets import factory_reset, has_secrets, save_secrets
-from .sync_engine import INTERVAL, manager
+from .sync_engine import manager
 
 APP_NAME = "c-ebot"
-app = FastAPI(title="c-ebot", version="0.2.0")
+app = FastAPI(title="c-ebot", version="0.2.1")
 
 
 def fmt(seconds: int | None) -> str:
@@ -33,9 +33,10 @@ def when(ts: float | None) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "—"
 
 
-def page(title: str, body: str) -> str:
+def page(title: str, body: str, refresh: bool = False) -> str:
+    refresh_tag = "<meta http-equiv='refresh' content='10'>" if refresh else ""
     return f"""<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<meta http-equiv='refresh' content='10'><title>{title}</title><style>
+{refresh_tag}<title>{title}</title><style>
 body{{font-family:system-ui,sans-serif;max-width:1100px;margin:30px auto;padding:0 18px;background:#f5f6f8;color:#17202a}}
 .card{{background:white;border:1px solid #ddd;border-radius:14px;padding:18px;margin:14px 0;box-shadow:0 1px 3px #0001}}
 .grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}} .timer{{font-size:2rem;font-weight:700}}
@@ -75,16 +76,16 @@ async def dashboard() -> str:
 <div class='card'><h3>Connections</h3><p>Chaster: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>EmlaLock: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>Discord: optional.</p><p><a href='/setup'>Setup / replace credentials</a></p></div>
 <div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted credential vault only; it does not alter either service account or lock.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET' autocomplete='off'><button>Factory reset bot</button></form></div>
 """
-    return page("c-ebot — Live Sync", body)
+    return page("c-ebot — Live Sync", body, refresh=True)
 
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_form() -> str:
-    body = """<div class='card'><h2>Setup wizard</h2><p>Credentials are encrypted and hidden after saving. Enter the Chaster lock ID from the lock URL so c-ebot knows which lock to synchronize.</p></div>
-<form method='post' action='/setup'><div class='card'><h3>Chaster</h3><label>Developer token<br><input name='chaster_token' type='password' required></label><br><br><label>Lock ID<br><input name='chaster_lock_id' required></label></div>
-<div class='card'><h3>EmlaLock</h3><label>User ID<br><input name='emlalock_user_id' required></label><br><br><label>API key<br><input name='emlalock_api_key' type='password' required></label><br><br><label>Keyholder API key (required for subtract)<br><input name='emlalock_keyholder_api_key' type='password' required></label></div>
-<div class='card'><h3>Discord (optional)</h3><label>Discord log channel ID<br><input name='discord_channel_id'></label><br><br><button type='submit'>Save and start syncing</button></div></form>"""
-    return page("Setup — c-ebot", body)
+    body = """<div class='card'><h2>Setup wizard</h2><p>Credentials are encrypted and hidden after saving. This page will not automatically refresh while you enter them.</p><p>Enter the Chaster lock ID from the lock URL so c-ebot knows which lock to synchronize.</p></div>
+<form method='post' action='/setup'><div class='card'><h3>Chaster</h3><label>Developer token<br><input name='chaster_token' type='password' autocomplete='off' required></label><br><br><label>Lock ID<br><input name='chaster_lock_id' autocomplete='off' required></label></div>
+<div class='card'><h3>EmlaLock</h3><label>User ID<br><input name='emlalock_user_id' autocomplete='off' required></label><br><br><label>API key<br><input name='emlalock_api_key' type='password' autocomplete='off' required></label><br><br><label>Keyholder API key (required for subtract)<br><input name='emlalock_keyholder_api_key' type='password' autocomplete='off' required></label></div>
+<div class='card'><h3>Discord (optional)</h3><label>Discord log channel ID<br><input name='discord_channel_id' autocomplete='off'></label><br><br><button type='submit'>Save and start syncing</button></div></form>"""
+    return page("Setup — c-ebot", body, refresh=False)
 
 
 @app.post("/setup")
