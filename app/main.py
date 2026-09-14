@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
+import os
 import time
 
-from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-from .secrets import factory_reset, has_secrets, save_secrets
+from .secrets import factory_reset, has_secrets, save_secrets, VAULT_PATH, _fernet
 from .sync_engine import manager
 
 APP_NAME = "c-ebot"
-app = FastAPI(title="c-ebot", version="0.2.3")
+app = FastAPI(title="c-ebot", version="0.2.4")
 
 
 def fmt(seconds: int | None) -> str:
@@ -78,7 +80,11 @@ async def dashboard() -> str:
 </form>
 </div><small>Enter one number and choose Years, Months, Days, Hours, Minutes, or Seconds. Months are treated as 30 days and years as 365 days.</small></div>
 <div class='card'><h3>Activity</h3>{''.join(f"<p><small>{when(x.get('time'))}</small> — {html.escape(str(x.get('action','')))} {html.escape(str(x.get('detail','')))}</p>" for x in (s.history or [])[:15]) or '<p>No activity yet.</p>'}</div>
-<div class='card'><h3>Connections</h3><p>Chaster: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>EmlaLock: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>Discord: optional.</p><p><a href='/setup'>Setup / replace credentials</a></p></div>
+<div class='card'><h3>Connections</h3><p>Chaster: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>EmlaLock: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>Discord: optional.</p><p><a href='/setup'>Setup / replace credentials</a></p>
+<h3>Backup / restore</h3><p>Back up the encrypted credential vault before updating or replacing the bot folder.</p>
+<p><a href='/backup-vault'>Download encrypted credential backup</a></p>
+<form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><button type='submit'>Import encrypted backup</button></form>
+<small>Import replaces the current encrypted vault. The backup must have been created by c-ebot with the same APP_SECRET.</small></div>
 <div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted credential vault only; it does not alter either service account or lock.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET' autocomplete='off'><button>Factory reset bot</button></form></div>
 """
     return page("c-ebot — Live Sync", body, refresh=True)
@@ -99,6 +105,35 @@ async def setup_submit(chaster_token: str = Form(""), chaster_lock_id: str = For
     manager.resume()
     asyncio.create_task(manager.sync_once())
     return RedirectResponse("/", status_code=303)
+
+
+@app.get("/backup-vault")
+async def backup_vault():
+    if not has_secrets():
+        return HTMLResponse(page("Backup", "<div class='card'><h2>No backup available</h2><p>No encrypted credential vault exists yet.</p><a href='/'>Back</a></div>"), status_code=404)
+    return FileResponse(VAULT_PATH, filename="c-ebot-vault.enc", media_type="application/octet-stream")
+
+
+@app.post("/import-vault")
+async def import_vault(vault_file: UploadFile = File(...)):
+    try:
+        if not vault_file.filename or not vault_file.filename.lower().endswith(".enc"):
+            raise ValueError("Please select a c-ebot .enc backup file")
+        data = await vault_file.read()
+        if not data or len(data) > 1024 * 1024:
+            raise ValueError("Invalid or oversized backup file")
+        values = json.loads(_fernet().decrypt(data).decode("utf-8"))
+        if not isinstance(values, dict) or not values.get("chaster_token") or not values.get("chaster_lock_id") or not values.get("emlalock_user_id") or not values.get("emlalock_api_key"):
+            raise ValueError("Backup does not contain a valid c-ebot credential set")
+        VAULT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = VAULT_PATH.with_suffix(".import.tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, VAULT_PATH)
+        manager.resume()
+        asyncio.create_task(manager.sync_once())
+        return RedirectResponse("/", status_code=303)
+    except Exception as exc:
+        return HTMLResponse(page("Import failed", f"<div class='card danger'><h2>Import failed</h2><p>{html.escape(str(exc))}</p><a href='/'>Back</a></div>"), status_code=400)
 
 
 @app.post("/sync")
