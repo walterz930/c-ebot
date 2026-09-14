@@ -18,7 +18,7 @@ from .sync_engine import manager
 from .discord_bot import start_discord
 
 APP_NAME = "c-ebot"
-app = FastAPI(title="c-ebot", version="0.2.8")
+app = FastAPI(title=APP_NAME, version="0.2.9")
 BACKUP_ITERATIONS = 390000
 
 
@@ -58,7 +58,8 @@ button,input,select{{padding:10px;border-radius:8px;border:1px solid #bbb;box-si
 
 
 def _backup_key(password: str, salt: bytes) -> bytes:
-    if not password: raise ValueError("Backup password is required")
+    if not password:
+        raise ValueError("Backup password is required")
     return base64.urlsafe_b64encode(PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=BACKUP_ITERATIONS).derive(password.encode("utf-8")))
 
 
@@ -70,11 +71,13 @@ def make_portable_backup(values: dict[str, str], password: str) -> bytes:
 
 def read_portable_backup(data: bytes, password: str) -> dict[str, str]:
     wrapper = json.loads(data.decode())
-    if wrapper.get("format") != "c-ebot-backup-v2": raise ValueError("Not a portable c-ebot backup")
+    if wrapper.get("format") != "c-ebot-backup-v2":
+        raise ValueError("Not a portable c-ebot backup")
     salt = base64.urlsafe_b64decode(wrapper["salt"])
     key = base64.urlsafe_b64encode(PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=int(wrapper.get("iterations", BACKUP_ITERATIONS))).derive(password.encode()))
     values = json.loads(Fernet(key).decrypt(wrapper["token"].encode()).decode())
-    if not isinstance(values, dict): raise ValueError("Backup contents are invalid")
+    if not isinstance(values, dict):
+        raise ValueError("Backup contents are invalid")
     return values
 
 
@@ -110,23 +113,21 @@ async def setup_form() -> str:
     invite = f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot%20applications.commands&permissions=68608" if client_id.isdigit() else ""
     body = """<div class='card'><h2>Setup</h2><p>Credentials are encrypted and hidden after saving. This page does not automatically refresh while you enter them.</p></div>
 <form method='post' action='/setup'>
-<div class='card'><h3>Chaster</h3><label>Developer token<br><input name='chaster_token' type='password' autocomplete='off' required></label><br><br><label>Lock ID<br><input name='chaster_lock_id' autocomplete='off' required></label></div>
+<div class='card'><h3>Chaster</h3><label>Developer token (wearer / primary account)<br><input name='chaster_token' type='password' autocomplete='off' required></label><br><br><label>Lock ID<br><input name='chaster_lock_id' autocomplete='off' required></label><hr><h4>Chaster permissions required</h4><p><strong>For normal sync/add-time:</strong> the API token needs the <code>locks</code> scope and the lock contract must grant the token's account <strong>Add time</strong>.</p><p><strong>For subtract-time:</strong> the account making the Chaster request must have <strong>Remove time</strong>. Chaster's Standard preset normally grants Remove time to the keyholder, not the wearer.</p><label>Chaster keyholder access token (required if this bot must remove Chaster time as keyholder)<br><input name='chaster_keyholder_token' type='password' autocomplete='off' placeholder='Optional — token with keyholder scope'></label><p><small>The keyholder token should belong to the Chaster keyholder account and be authorized with the <code>keyholder</code> scope. Leave it empty only if the primary token's account itself has Remove time.</small></p></div>
 <div class='card'><h3>EmlaLock</h3><label>User ID<br><input name='emlalock_user_id' autocomplete='off' required></label><br><br><label>API key<br><input name='emlalock_api_key' type='password' autocomplete='off' required></label><br><br><label>Keyholder API key (required for subtract)<br><input name='emlalock_keyholder_api_key' type='password' autocomplete='off' required></label></div>
-<div class='card'><h3>Discord (optional)</h3><p>c-ebot uses Discord slash commands, so <strong>Message Content Intent is not required</strong>. The bot only requests the Guilds intent.</p><label>Bot token<br><input name='discord_bot_token' type='password' autocomplete='off' placeholder='Paste the Bot Token from Developer Portal'></label><br><br><label>Application / Client ID<br><input name='discord_application_id' inputmode='numeric' autocomplete='off' placeholder='Application ID / Client ID'></label><br><br><label>Server / Guild ID<br><input name='discord_guild_id' inputmode='numeric' autocomplete='off' placeholder='Server ID'></label><br><br><label>Log / alert channel ID<br><input name='discord_channel_id' inputmode='numeric' autocomplete='off' placeholder='Channel ID'></label><br><br><label>Admin user IDs<br><input name='discord_admin_user_ids' autocomplete='off' placeholder='Your Discord user ID, comma-separated for multiple'></label><p><small>Admin IDs control who may use /sync, /addtime, /subtracttime and /logs. /status remains available to users who can use the application command.</small></p>
+<div class='card'><h3>Discord (optional)</h3><p>c-ebot uses Discord slash commands, so <strong>Message Content Intent is not required</strong>. The bot only requests the Guilds intent.</p><label>Bot token<br><input name='discord_bot_token' type='password' autocomplete='off'></label><br><br><label>Application / Client ID<br><input name='discord_application_id' inputmode='numeric' autocomplete='off'></label><br><br><label>Server / Guild ID<br><input name='discord_guild_id' inputmode='numeric' autocomplete='off'></label><br><br><label>Log / alert channel ID<br><input name='discord_channel_id' inputmode='numeric' autocomplete='off'></label><br><br><label>Admin user IDs<br><input name='discord_admin_user_ids' autocomplete='off' placeholder='Comma-separated Discord user IDs'></label><p><small>Admin IDs control /sync, /addtime, /subtracttime and /logs.</small></p>
 """ + (f"<p><strong>Invite link:</strong> <a href='{html.escape(invite)}' target='_blank'>Add c-ebot to your server</a></p>" if invite else "<p>Enter the Application / Client ID to generate the server invite link.</p>") + """
-<p><strong>Discord permissions requested:</strong> View Channel, Send Messages, Embed Links, Read Message History. Scopes: <code>bot</code> and <code>applications.commands</code>.</p>
-<p><strong>Developer Portal:</strong> create an application, add a Bot, copy the Bot Token and Application ID, then invite it using the generated link above. You need Manage Server to add the app to a server.</p>
-<p><strong>Connection:</strong> """ + ("configured" if discord_configured else "not configured") + """</p></div>
+<p><strong>Discord permissions:</strong> View Channel, Send Messages, Embed Links, Read Message History. Scopes: <code>bot</code> and <code>applications.commands</code>.</p><p><strong>Developer Portal:</strong> create the application, add a Bot, copy the Bot Token and Application ID, then invite it to the server.</p><p><strong>Connection:</strong> """ + ("configured" if discord_configured else "not configured") + """</p></div>
 <div class='card'><button type='submit'>Save and start syncing</button></div></form>
 <div class='card'><h3>Connections</h3><p>Chaster: <strong>{chaster_status}</strong></p><p>EmlaLock: <strong>{emla_status}</strong></p><p>Discord: <strong>{discord_status}</strong></p></div>
-<div class='card'><h3>Backup / restore</h3><p>Create a portable encrypted backup with a backup password. You can import it after redownloading c-ebot.</p><form method='post' action='/backup-vault'><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Download encrypted backup</button></form><br><form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Import encrypted backup</button></form></div>
+<div class='card'><h3>Backup / restore</h3><p>Create a portable encrypted backup with a backup password.</p><form method='post' action='/backup-vault'><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Download encrypted backup</button></form><br><form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Import encrypted backup</button></form></div>
 <div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted local credential vault only.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET'><button>Factory reset bot</button></form></div>""".format(chaster_status="credentials saved" if configured else "not configured", emla_status="credentials saved" if configured else "not configured", discord_status="configured" if discord_configured else "not configured")
     return page("Setup — c-ebot", body, refresh=False)
 
 
 @app.post("/setup")
-async def setup_submit(chaster_token: str = Form(""), chaster_lock_id: str = Form(""), emlalock_user_id: str = Form(""), emlalock_api_key: str = Form(""), emlalock_keyholder_api_key: str = Form(""), discord_bot_token: str = Form(""), discord_application_id: str = Form(""), discord_guild_id: str = Form(""), discord_channel_id: str = Form(""), discord_admin_user_ids: str = Form("")):
-    save_secrets({"chaster_token": chaster_token.strip(), "chaster_lock_id": chaster_lock_id.strip(), "emlalock_user_id": emlalock_user_id.strip(), "emlalock_api_key": emlalock_api_key.strip(), "emlalock_keyholder_api_key": emlalock_keyholder_api_key.strip(), "discord_bot_token": discord_bot_token.strip(), "discord_application_id": discord_application_id.strip(), "discord_guild_id": discord_guild_id.strip(), "discord_channel_id": discord_channel_id.strip(), "discord_admin_user_ids": discord_admin_user_ids.strip()})
+async def setup_submit(chaster_token: str = Form(""), chaster_lock_id: str = Form(""), chaster_keyholder_token: str = Form(""), emlalock_user_id: str = Form(""), emlalock_api_key: str = Form(""), emlalock_keyholder_api_key: str = Form(""), discord_bot_token: str = Form(""), discord_application_id: str = Form(""), discord_guild_id: str = Form(""), discord_channel_id: str = Form(""), discord_admin_user_ids: str = Form("")):
+    save_secrets({"chaster_token": chaster_token.strip(), "chaster_lock_id": chaster_lock_id.strip(), "chaster_keyholder_token": chaster_keyholder_token.strip(), "emlalock_user_id": emlalock_user_id.strip(), "emlalock_api_key": emlalock_api_key.strip(), "emlalock_keyholder_api_key": emlalock_keyholder_api_key.strip(), "discord_bot_token": discord_bot_token.strip(), "discord_application_id": discord_application_id.strip(), "discord_guild_id": discord_guild_id.strip(), "discord_channel_id": discord_channel_id.strip(), "discord_admin_user_ids": discord_admin_user_ids.strip()})
     manager.resume()
     asyncio.create_task(manager.sync_once())
     await start_discord()
@@ -189,7 +190,8 @@ async def adjust(amount: int = Form(...), unit: str = Form(...), direction: str 
         multipliers = {"seconds":1,"minutes":60,"hours":3600,"days":86400,"months":30*86400,"years":365*86400}
         if unit not in multipliers: raise ValueError("Invalid time unit")
         await manager.manual_delta(amount * multipliers[unit] * (1 if direction == "add" else -1))
-    except Exception as exc: manager.pause(f"Manual change failed: {exc}")
+    except Exception as exc:
+        manager.pause(f"Manual change failed: {exc}")
     return RedirectResponse("/", status_code=303)
 
 
