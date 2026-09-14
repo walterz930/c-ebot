@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -17,6 +18,13 @@ EMLALOCK_BASE = "https://api.emlalock.com"
 DATA_DIR = Path(os.getenv("DATA_DIR") or (Path(__file__).resolve().parent.parent / "data"))
 STATE_PATH = DATA_DIR / "sync-state.json"
 INTERVAL = max(10, int(os.getenv("SYNC_INTERVAL_SECONDS", "30")))
+
+_event_callback: Callable[[str, str], Any] | None = None
+
+
+def set_event_callback(callback: Callable[[str, str], Any] | None) -> None:
+    global _event_callback
+    _event_callback = callback
 
 
 @dataclass
@@ -65,6 +73,13 @@ class SyncManager:
         self._save()
         stamp = time.strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{stamp}] {action}{': ' + detail if detail else ''}", flush=True)
+        if _event_callback is not None:
+            try:
+                result = _event_callback(action, detail)
+                if inspect.isawaitable(result):
+                    asyncio.create_task(result)
+            except Exception as exc:
+                print(f"[c-ebot] Discord activity notification failed: {exc}", flush=True)
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -235,7 +250,7 @@ class SyncManager:
             self.state.status = "SYNCED"
             self.state.message = "Timers synchronized and verified"
             print(f"[c-ebot] VERIFIED: Chaster={c2}s | EmlaLock={e2}s", flush=True)
-            self.log("AUTO_SYNC", f"adjusted lower timer by {abs(delta)}s")
+            self.log("AUTO_SYNC", f"{lower} extended by {abs(delta)}s; verified Chaster={c2}s, EmlaLock={e2}s")
             self._save()
 
     async def manual_delta(self, delta: int, actor: str = "dashboard") -> None:
@@ -262,7 +277,7 @@ class SyncManager:
             self.state.message = "Manual change applied and verified"
             self.state.paused = False
             print(f"[c-ebot] VERIFIED manual change: Chaster={c}s | EmlaLock={e}s", flush=True)
-            self.log("MANUAL_ADD" if delta > 0 else "MANUAL_SUBTRACT", f"{abs(delta)}s by {actor}")
+            self.log("MANUAL_ADD" if delta > 0 else "MANUAL_SUBTRACT", f"{abs(delta)}s by {actor}; verified Chaster={c}s, EmlaLock={e}s")
             self._save()
 
 
