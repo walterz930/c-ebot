@@ -63,10 +63,13 @@ class SyncManager:
         self.state.history = self.state.history[:100]
         self.state.last_action = f"{action}: {detail}" if detail else action
         self._save()
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{stamp}] {action}{': ' + detail if detail else ''}", flush=True)
 
     async def start(self) -> None:
         if self._task and not self._task.done():
             return
+        print(f"[c-ebot] Starting sync engine (interval: {INTERVAL}s)", flush=True)
         self._task = asyncio.create_task(self._loop())
 
     async def _loop(self) -> None:
@@ -106,7 +109,6 @@ class SyncManager:
     @staticmethod
     def _remaining_chaster(lock: dict[str, Any]) -> int:
         now = time.time()
-        # Chaster responses use an endDate/endDate-like timestamp for the live lock.
         for key in ("endDate", "enddate", "endAt", "endDateTimestamp"):
             value = lock.get(key)
             if value is not None:
@@ -126,7 +128,6 @@ class SyncManager:
                     from datetime import datetime
                     ts = datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
                 return max(0, int(ts - now))
-        # Some API representations expose remaining duration directly.
         for key in ("remainingTime", "remainingSeconds", "timeRemaining"):
             if lock.get(key) is not None:
                 return max(0, int(lock[key]))
@@ -181,25 +182,30 @@ class SyncManager:
         async with self._lock:
             self.state.status = "SYNCING"
             self.state.message = "Reading both timers"
+            print("[c-ebot] Checking Chaster and EmlaLock timers...", flush=True)
             c, e = await self.read_timers()
             self.state.chaster_seconds, self.state.emlalock_seconds = c, e
             self.state.target_seconds = max(c, e)
             self.state.last_check = time.time()
+            print(f"[c-ebot] Timers: Chaster={c}s | EmlaLock={e}s | Target={max(c,e)}s", flush=True)
             if abs(c - e) <= 1:
                 self.state.status = "SYNCED"
                 self.state.message = "Timers synchronized"
+                print("[c-ebot] OK: timers are synchronized.", flush=True)
                 self._save()
                 return
             delta = e - c
             s = load_secrets()
             lock_id = s["chaster_lock_id"]
-            self.state.message = f"Extending {'Chaster' if c < e else 'EmlaLock'} by {abs(delta)}s"
+            lower = "Chaster" if c < e else "EmlaLock"
+            self.state.message = f"Extending {lower} by {abs(delta)}s"
+            print(f"[c-ebot] Adjusting {lower} by {abs(delta)}s (higher timer is authoritative).", flush=True)
             async with httpx.AsyncClient(timeout=20) as client:
-                # Normal sync only extends the lower timer. Never shorten the higher timer.
                 if c < e:
                     await self._chaster_delta(client, s["chaster_token"], lock_id, delta)
                 else:
                     await self._emlalock_delta(client, s, -delta)
+            print("[c-ebot] Change sent. Re-reading both timers for verification...", flush=True)
             c2, e2 = await self.read_timers()
             self.state.chaster_seconds, self.state.emlalock_seconds = c2, e2
             if abs(c2 - e2) > 2:
@@ -207,6 +213,7 @@ class SyncManager:
             self.state.target_seconds = max(c2, e2)
             self.state.status = "SYNCED"
             self.state.message = "Timers synchronized and verified"
+            print(f"[c-ebot] VERIFIED: Chaster={c2}s | EmlaLock={e2}s", flush=True)
             self.log("AUTO_SYNC", f"adjusted lower timer by {abs(delta)}s")
             self._save()
 
@@ -218,10 +225,13 @@ class SyncManager:
             lock_id = s.get("chaster_lock_id", "").strip()
             if not lock_id:
                 raise SyncError("Chaster lock ID is not configured")
-            self.state.message = f"Manual {'add' if delta > 0 else 'subtract'} {abs(delta)}s"
+            direction = "add" if delta > 0 else "subtract"
+            print(f"[c-ebot] MANUAL {direction}: changing both timers by {abs(delta)}s", flush=True)
+            self.state.message = f"Manual {direction} {abs(delta)}s"
             async with httpx.AsyncClient(timeout=20) as client:
                 await self._chaster_delta(client, s["chaster_token"], lock_id, delta)
                 await self._emlalock_delta(client, s, delta)
+            print("[c-ebot] Manual change sent. Verifying both timers...", flush=True)
             c, e = await self.read_timers()
             self.state.chaster_seconds, self.state.emlalock_seconds = c, e
             if abs(c - e) > 2:
@@ -230,6 +240,7 @@ class SyncManager:
             self.state.status = "SYNCED"
             self.state.message = "Manual change applied and verified"
             self.state.paused = False
+            print(f"[c-ebot] VERIFIED manual change: Chaster={c}s | EmlaLock={e}s", flush=True)
             self.log("MANUAL_ADD" if delta > 0 else "MANUAL_SUBTRACT", f"{abs(delta)}s by {actor}")
             self._save()
 
