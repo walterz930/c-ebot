@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Optional
 
 import discord
 from discord import app_commands
 
 from .secrets import load_secrets
-from .sync_engine import manager
+from .sync_engine import manager, set_event_callback
 
 
 def _admin_ids() -> set[int]:
@@ -44,21 +43,23 @@ class CEBot(discord.Client):
             return
         self.ready_once = True
         manager.log("DISCORD_CONNECTED", f"Logged in as {self.user}")
-        await send_alert("c-ebot Discord bot is online.")
 
 
 client = CEBot()
 
 
 def is_admin(interaction: discord.Interaction) -> bool:
-    ids = _admin_ids()
-    if not ids:
-        return False
-    return interaction.user.id in ids
+    if interaction.user.id in _admin_ids():
+        return True
+    permissions = getattr(interaction.user, "guild_permissions", None)
+    return bool(permissions and permissions.administrator)
 
 
 async def deny(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message("You are not authorized to control c-ebot.", ephemeral=True)
+    await interaction.response.send_message(
+        "You are not authorized to control c-ebot. You need the Discord Administrator permission or your User ID must be listed under Admin User IDs.",
+        ephemeral=True,
+    )
 
 
 def seconds_from(amount: int, unit: str) -> int:
@@ -160,6 +161,24 @@ async def send_alert(message: str) -> None:
             pass
 
 
+async def discord_activity(action: str, detail: str) -> None:
+    if action == "AUTO_SYNC":
+        message = f"🔄 **Automatic sync**\n{detail}"
+    elif action == "MANUAL_ADD":
+        message = f"➕ **Time added**\n{detail}"
+    elif action == "MANUAL_SUBTRACT":
+        message = f"➖ **Time removed**\n{detail}"
+    elif action == "PAUSED":
+        message = f"🛑 **Automatic sync paused**\n{detail}"
+    elif action == "RESUMED":
+        message = "▶️ **Automatic sync resumed**"
+    elif action == "DISCORD_CONNECTED":
+        message = f"🤖 **c-ebot online**\n{detail}"
+    else:
+        message = f"ℹ️ **c-ebot: {action}**\n{detail}" if detail else f"ℹ️ **c-ebot: {action}**"
+    await send_alert(message)
+
+
 _bot_task: Optional[asyncio.Task] = None
 
 
@@ -172,11 +191,13 @@ async def start_discord() -> None:
         return
     if _bot_task and not _bot_task.done():
         return
+    set_event_callback(discord_activity)
     async def runner() -> None:
         try:
             await client.start(token)
         except Exception as exc:
             print(f"[c-ebot] Discord bot stopped: {exc}", flush=True)
+            await send_alert(f"🔴 **c-ebot Discord bot stopped**\n{exc}")
     _bot_task = asyncio.create_task(runner())
 
 
@@ -185,4 +206,5 @@ async def stop_discord() -> None:
     if _bot_task and not _bot_task.done():
         await client.close()
         _bot_task.cancel()
+    set_event_callback(None)
     _bot_task = None
