@@ -9,7 +9,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from .secrets import factory_reset, has_secrets, save_secrets
 
 APP_NAME = "c-ebot"
-DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
+# Keep runtime data beside the application on Windows, while allowing Docker
+# to provide /app/data explicitly through DATA_DIR.
+DATA_DIR = Path(os.getenv("DATA_DIR") or (Path(__file__).resolve().parent.parent / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="c-ebot", version="0.1.0")
