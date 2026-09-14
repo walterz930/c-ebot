@@ -154,6 +154,19 @@ class SyncManager:
     async def _chaster_delta(self, client: httpx.AsyncClient, token: str, lock_id: str, delta: int) -> None:
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
         response = await client.post(f"{CHASTER_BASE}/locks/{lock_id}/update-time", headers=headers, json={"duration": delta})
+        if response.status_code == 403:
+            detail = ""
+            try:
+                payload = response.json()
+                if isinstance(payload, dict):
+                    detail = str(payload.get("message") or payload.get("error") or payload.get("detail") or "").strip()
+            except Exception:
+                detail = response.text.strip()
+            suffix = f" Chaster said: {detail}" if detail else ""
+            raise SyncError(
+                "Chaster rejected the time change (403 Forbidden). Check that the developer token has the 'locks' scope "
+                "and that this lock allows your account to add/remove time." + suffix
+            )
         response.raise_for_status()
 
     async def _emlalock_delta(self, client: httpx.AsyncClient, s: dict[str, str], delta: int) -> None:
