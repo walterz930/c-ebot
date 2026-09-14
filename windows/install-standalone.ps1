@@ -39,7 +39,7 @@ $Launcher = Join-Path $AppDir 'start-c-ebot.cmd'
 @echo off
 cd /d "%~dp0"
 call ".venv\Scripts\activate.bat"
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8080
+python -m uvicorn app.main:app --env-file ".env" --host 127.0.0.1 --port 8080
 "@ | Set-Content $Launcher -Encoding ASCII
 
 Start-Process $Launcher
