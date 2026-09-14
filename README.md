@@ -2,7 +2,7 @@
 
 **Chaster + EmlaLock time synchronization bot for Windows** with a local web dashboard and optional Discord integration.
 
-c-ebot is currently a **Windows-only application**. The supported installation is the Windows Standalone version; Docker, Linux, macOS, WSL, and other deployment methods are not supported at this time.
+c-ebot is a **Windows-only application**. It runs directly on Windows using Python and a local virtual environment.
 
 ---
 
@@ -24,13 +24,13 @@ c-ebot is currently a **Windows-only application**. The supported installation i
 - Portable encrypted credential backup for restoring after a redownload
 - Factory Reset for clearing the local credential vault
 - Local audit/history log
-- Windows standalone installation with no Docker or virtualization required
+- Direct Windows standalone installation
 
 ---
 
 # Windows Setup
 
-c-ebot is designed to be simple to run on a normal Windows PC.
+c-ebot is designed to run directly on a normal Windows PC.
 
 ### Requirements
 
@@ -38,14 +38,7 @@ c-ebot is designed to be simple to run on a normal Windows PC.
 - Python 3.12 or newer
 - Internet access during the initial installation
 
-The Windows standalone version does **not** require:
-
-- Docker Desktop
-- WSL
-- Hyper-V
-- CPU virtualization
-- Linux
-- macOS
+No virtualization platform or virtual machine is required. c-ebot runs directly on Windows with a local Python virtual environment.
 
 ### Step 1 — Install Python
 
@@ -89,12 +82,19 @@ windows\standalone\start-c-ebot.cmd
 
 Open the **Setup** button at the top of the dashboard and configure:
 
-- **Chaster developer token**
+- **Chaster developer/access token**
 - **Chaster Lock ID**
+- **Chaster keyholder access token**, when c-ebot must remove Chaster time as the keyholder
 - **EmlaLock User ID**
 - **EmlaLock API key**
 - **EmlaLock Keyholder API key** for subtract-time operations
 - **Discord settings**, if Discord is wanted
+
+### Chaster permissions
+
+For Chaster add-time operations, the access token needs the `locks` scope and the account must have **Add time** permission on the specific lock.
+
+For Chaster remove-time operations performed as the keyholder, use the separate keyholder access token. The keyholder account needs the appropriate `keyholder` scope and the lock must grant **Remove time** permission.
 
 Once credentials are saved, c-ebot starts syncing automatically.
 
@@ -236,7 +236,7 @@ c-ebot/
 ├── windows/
 │   ├── install-standalone.ps1   # Windows installer
 │   ├── README.md
-│   └── standalone/               # Generated Windows runtime files
+│   └── standalone/               # Windows runtime files
 ├── data/                         # Local runtime data (not committed)
 ├── .env.example                  # Example environment settings
 └── requirements.txt              # Python dependencies
@@ -246,4 +246,4 @@ c-ebot/
 
 # Development
 
-c-ebot is currently being developed as a **Windows-only application**. Other operating systems and deployment methods may be considered later, but they are not part of the current supported product.
+c-ebot is a **Windows-only application**. The supported product runs directly on Windows using Python and a local virtual environment.
