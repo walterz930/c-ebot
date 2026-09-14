@@ -18,7 +18,7 @@ from .secrets import factory_reset, has_secrets, save_secrets, VAULT_PATH, _fern
 from .sync_engine import manager
 
 APP_NAME = "c-ebot"
-app = FastAPI(title="c-ebot", version="0.2.6")
+app = FastAPI(title="c-ebot", version="0.2.7")
 BACKUP_ITERATIONS = 390000
 
 
@@ -52,8 +52,9 @@ body{{font-family:system-ui,sans-serif;max-width:1100px;margin:30px auto;padding
 button,input,select{{padding:10px;border-radius:8px;border:1px solid #bbb;box-sizing:border-box}} button{{cursor:pointer}} input{{width:100%}}
 .actions{{display:flex;gap:8px;flex-wrap:wrap}} .actions form{{display:flex;gap:6px;align-items:center}} .actions button{{width:auto}} small{{color:#667}} .danger{{border-color:#b33;background:#fff5f5}}
 .time-input{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}} .time-input input{{width:110px}} .time-input select{{min-width:130px}}
+.topbar{{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}} .topbar h1{{margin:0}} .setup-button{{display:inline-block;text-decoration:none}} .setup-button button{{font-weight:700}}
 @media(max-width:800px){{.grid{{grid-template-columns:1fr}}}}
-</style></head><body><h1>c-ebot</h1>{body}</body></html>"""
+</style></head><body><div class='topbar'><h1>c-ebot</h1><a class='setup-button' href='/setup'><button type='button'>Setup</button></a></div>{body}</body></html>"""
 
 
 def _backup_key(password: str, salt: bytes) -> bytes:
@@ -116,32 +117,23 @@ async def dashboard() -> str:
 </form>
 </div><small>Enter one number and choose Years, Months, Days, Hours, Minutes, or Seconds. Months are treated as 30 days and years as 365 days.</small></div>
 <div class='card'><h3>Activity</h3>{''.join(f"<p><small>{when(x.get('time'))}</small> — {html.escape(str(x.get('action','')))} {html.escape(str(x.get('detail','')))}</p>" for x in (s.history or [])[:15]) or '<p>No activity yet.</p>'}</div>
-<div class='card'><h3>Connections</h3><p>Chaster: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>EmlaLock: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>Discord: optional.</p><p><a href='/setup'>Setup / replace credentials</a></p>
-<h3>Backup / restore</h3><p>Create a portable encrypted backup with a backup password. You can import it after redownloading c-ebot, even on a new computer.</p>
-<form method='post' action='/backup-vault'><input name='backup_password' type='password' placeholder='Backup password' autocomplete='new-password' required><button type='submit'>Download encrypted backup</button></form>
-<form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><input name='backup_password' type='password' placeholder='Backup password' autocomplete='off' required><button type='submit'>Import encrypted backup</button></form>
-<small>The backup password is not stored by c-ebot. You must keep it safe. Your normal APP_SECRET is no longer required to restore a portable backup.</small></div>
-<div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted credential vault only; it does not alter either service account or lock.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET' autocomplete='off'><button>Factory reset bot</button></form></div>
-<script>
-(function() {{
-  const timers = Array.from(document.querySelectorAll('.countdown'));
-  const values = timers.map(el => {{ const raw = el.dataset.seconds; return raw === '' ? null : Math.max(0, Number(raw)); }});
-  const started = Date.now();
-  function format(total) {{ total = Math.max(0, Math.floor(total)); const d = Math.floor(total / 86400); total %= 86400; const h = Math.floor(total / 3600); total %= 3600; const m = Math.floor(total / 60); const s = total % 60; const parts = []; if (d) parts.push(d + 'd'); if (h || d) parts.push(h + 'h'); if (m || h || d) parts.push(m + 'm'); parts.push(s + 's'); return parts.join(' '); }}
-  function tick() {{ const elapsed = (Date.now() - started) / 1000; timers.forEach((el, i) => {{ if (values[i] !== null) el.textContent = format(values[i] - elapsed); }}); }}
-  tick(); setInterval(tick, 250);
-}})();
-</script>
 """
     return page("c-ebot — Live Sync", body, refresh=True)
 
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_form() -> str:
-    body = """<div class='card'><h2>Setup wizard</h2><p>Credentials are encrypted and hidden after saving. This page will not automatically refresh while you enter them.</p><p>Enter the Chaster lock ID from the lock URL so c-ebot knows which lock to synchronize.</p></div>
+    configured = has_secrets()
+    body = """<div class='card'><h2>Setup</h2><p>Credentials are encrypted and hidden after saving. This page will not automatically refresh while you enter them.</p><p>Enter the Chaster lock ID from the lock URL so c-ebot knows which lock to synchronize.</p></div>
 <form method='post' action='/setup'><div class='card'><h3>Chaster</h3><label>Developer token<br><input name='chaster_token' type='password' autocomplete='off' required></label><br><br><label>Lock ID<br><input name='chaster_lock_id' autocomplete='off' required></label></div>
 <div class='card'><h3>EmlaLock</h3><label>User ID<br><input name='emlalock_user_id' autocomplete='off' required></label><br><br><label>API key<br><input name='emlalock_api_key' type='password' autocomplete='off' required></label><br><br><label>Keyholder API key (required for subtract)<br><input name='emlalock_keyholder_api_key' type='password' autocomplete='off' required></label></div>
-<div class='card'><h3>Discord (optional)</h3><label>Discord log channel ID<br><input name='discord_channel_id' autocomplete='off'></label><br><br><button type='submit'>Save and start syncing</button></div></form>"""
+<div class='card'><h3>Discord (optional)</h3><label>Discord log channel ID<br><input name='discord_channel_id' autocomplete='off'></label><br><br><button type='submit'>Save and start syncing</button></div></form>
+<div class='card'><h3>Connections</h3><p>Chaster: <strong>{chaster_status}</strong></p><p>EmlaLock: <strong>{emla_status}</strong></p><p>Discord: optional.</p></div>
+<div class='card'><h3>Backup / restore</h3><p>Create a portable encrypted backup with a backup password. You can import it after redownloading c-ebot, even on a new computer.</p>
+<form method='post' action='/backup-vault'><input name='backup_password' type='password' placeholder='Backup password' autocomplete='new-password' required><button type='submit'>Download encrypted backup</button></form>
+<br><form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><input name='backup_password' type='password' placeholder='Backup password' autocomplete='off' required><button type='submit'>Import encrypted backup</button></form>
+<small>The backup password is not stored by c-ebot. You must keep it safe. Your normal APP_SECRET is no longer required to restore a portable backup.</small></div>
+<div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted credential vault only; it does not alter either service account or lock.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET' autocomplete='off'><button>Factory reset bot</button></form></div>""".format(chaster_status="credentials saved" if configured else "not configured", emla_status="credentials saved" if configured else "not configured")
     return page("Setup — c-ebot", body, refresh=False)
 
 
@@ -163,7 +155,7 @@ async def backup_vault(backup_password: str = Form("")):
         data = make_portable_backup(load_secrets(), backup_password)
         return StreamingResponse(iter([data]), media_type="application/octet-stream", headers={"Content-Disposition": 'attachment; filename="c-ebot-vault.enc"'})
     except Exception as exc:
-        return HTMLResponse(page("Backup failed", f"<div class='card danger'><h2>Backup failed</h2><p>{html.escape(str(exc))}</p><a href='/'>Back</a></div>"), status_code=400)
+        return HTMLResponse(page("Backup failed", f"<div class='card danger'><h2>Backup failed</h2><p>{html.escape(str(exc))}</p><a href='/setup'>Back to Setup</a></div>"), status_code=400)
 
 
 @app.post("/import-vault")
@@ -179,7 +171,6 @@ async def import_vault(vault_file: UploadFile = File(...), backup_password: str 
         try:
             values = read_portable_backup(data, backup_password)
         except Exception:
-            # Backward compatibility for old backups when the old APP_SECRET is still available.
             values = json.loads(_fernet().decrypt(data).decode("utf-8"))
         if not isinstance(values, dict) or not valid_credentials(values):
             raise ValueError("Backup does not contain a valid c-ebot credential set")
@@ -188,7 +179,7 @@ async def import_vault(vault_file: UploadFile = File(...), backup_password: str 
         asyncio.create_task(manager.sync_once())
         return RedirectResponse("/", status_code=303)
     except Exception as exc:
-        return HTMLResponse(page("Import failed", f"<div class='card danger'><h2>Import failed</h2><p>{html.escape(str(exc))}</p><p>Check that you selected a c-ebot backup and entered the correct backup password.</p><a href='/'>Back</a></div>"), status_code=400)
+        return HTMLResponse(page("Import failed", f"<div class='card danger'><h2>Import failed</h2><p>{html.escape(str(exc))}</p><p>Check that you selected a c-ebot backup and entered the correct backup password.</p><a href='/setup'>Back to Setup</a></div>"), status_code=400)
 
 
 @app.post("/sync")
@@ -234,7 +225,7 @@ async def adjust(amount: int = Form(...), unit: str = Form(...), direction: str 
 @app.post("/factory-reset")
 async def reset(confirmation: str = Form("")):
     if confirmation.strip() != "FACTORY RESET":
-        return HTMLResponse(page("Factory reset", "<div class='card danger'><h2>Reset cancelled</h2><p>You must type <strong>FACTORY RESET</strong> exactly.</p><a href='/'>Back</a></div>"), status_code=400)
+        return HTMLResponse(page("Factory reset", "<div class='card danger'><h2>Reset cancelled</h2><p>You must type <strong>FACTORY RESET</strong> exactly.</p><a href='/setup'>Back to Setup</a></div>"), status_code=400)
     factory_reset()
     manager.state = manager.state.__class__()
     manager.state.history = []
