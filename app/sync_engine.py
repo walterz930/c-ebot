@@ -151,9 +151,17 @@ class SyncManager:
                 return max(0, int(session[key]))
         raise SyncError("Could not find EmlaLock remaining time in API response")
 
-    async def _chaster_delta(self, client: httpx.AsyncClient, token: str, lock_id: str, delta: int) -> None:
+    async def _chaster_delta(self, client: httpx.AsyncClient, s: dict[str, str], delta: int) -> None:
+        token = s.get("chaster_token", "").strip()
+        if delta < 0:
+            token = s.get("chaster_keyholder_token", "").strip() or token
+            if not s.get("chaster_keyholder_token", "").strip():
+                raise SyncError(
+                    "Chaster remove-time requires the account performing the request to have the lock's 'Remove time' permission. "
+                    "If the bot is acting as the keyholder, add a Chaster keyholder access token with the 'keyholder' scope in Setup."
+                )
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
-        response = await client.post(f"{CHASTER_BASE}/locks/{lock_id}/update-time", headers=headers, json={"duration": delta})
+        response = await client.post(f"{CHASTER_BASE}/locks/{s['chaster_lock_id']}/update-time", headers=headers, json={"duration": delta})
         if response.status_code == 403:
             detail = ""
             try:
@@ -163,10 +171,11 @@ class SyncManager:
             except Exception:
                 detail = response.text.strip()
             suffix = f" Chaster said: {detail}" if detail else ""
-            raise SyncError(
-                "Chaster rejected the time change (403 Forbidden). Check that the developer token has the 'locks' scope "
-                "and that this lock allows your account to add/remove time." + suffix
-            )
+            if delta >= 0:
+                requirement = "the account's Chaster 'locks' scope and the lock's 'Add time' permission"
+            else:
+                requirement = "the account's Chaster 'keyholder' scope (when acting as keyholder) and the lock's 'Remove time' permission"
+            raise SyncError(f"Chaster rejected the time change (403 Forbidden). Required: {requirement}." + suffix)
         response.raise_for_status()
 
     async def _emlalock_delta(self, client: httpx.AsyncClient, s: dict[str, str], delta: int) -> None:
@@ -209,13 +218,12 @@ class SyncManager:
                 return
             delta = e - c
             s = load_secrets()
-            lock_id = s["chaster_lock_id"]
             lower = "Chaster" if c < e else "EmlaLock"
             self.state.message = f"Extending {lower} by {abs(delta)}s"
             print(f"[c-ebot] Adjusting {lower} by {abs(delta)}s (higher timer is authoritative).", flush=True)
             async with httpx.AsyncClient(timeout=20) as client:
                 if c < e:
-                    await self._chaster_delta(client, s["chaster_token"], lock_id, delta)
+                    await self._chaster_delta(client, s, delta)
                 else:
                     await self._emlalock_delta(client, s, -delta)
             print("[c-ebot] Change sent. Re-reading both timers for verification...", flush=True)
@@ -242,7 +250,7 @@ class SyncManager:
             print(f"[c-ebot] MANUAL {direction}: changing both timers by {abs(delta)}s", flush=True)
             self.state.message = f"Manual {direction} {abs(delta)}s"
             async with httpx.AsyncClient(timeout=20) as client:
-                await self._chaster_delta(client, s["chaster_token"], lock_id, delta)
+                await self._chaster_delta(client, s, delta)
                 await self._emlalock_delta(client, s, delta)
             print("[c-ebot] Manual change sent. Verifying both timers...", flush=True)
             c, e = await self.read_timers()
