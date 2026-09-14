@@ -124,18 +124,53 @@ async def setup_form() -> str:
     invite = f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot%20applications.commands&permissions=68608" if client_id.isdigit() else ""
     lock_note = "<div class='card danger'><strong>Saved credentials are locked individually.</strong><p>Any credential already saved cannot be changed until Factory Reset. Credentials that have not been configured remain open so they can be added later.</p></div>" if configured else ""
     save_button = "<button type='submit'>Save / configure available fields</button>"
-    body = """<div class='card'><h2>Setup</h2><p>Credentials are encrypted locally. Each saved credential is locked individually. Any credential that is still not configured remains editable until it is saved.</p></div>
-""" + lock_note + """
-<form method='post' action='/setup'>
-<div class='card'><h3>Chaster</h3><label>Developer token (wearer / primary account)<br><input name='chaster_token' """ + attrs("chaster_token", True, True) + ""></label><br><br><label>Lock ID<br><input name='chaster_lock_id' """ + attrs("chaster_lock_id", True) + ""></label><hr><h4>Chaster permissions required</h4><p><strong>For normal sync/add-time:</strong> the API token needs the <code>locks</code> scope and the lock contract must grant the token's account <strong>Add time</strong>.</p><p><strong>For subtract-time:</strong> the account making the Chaster request must have <strong>Remove time</strong>. Chaster's Standard preset normally grants Remove time to the keyholder, not the wearer.</p><label>Chaster keyholder access token (required if this bot must remove Chaster time as keyholder)<br><input name='chaster_keyholder_token' """ + attrs("chaster_keyholder_token", False, True) + ""></label><p><small>The keyholder token should belong to the Chaster keyholder account and be authorized with the <code>keyholder</code> scope. Leave it empty only if the primary token's account itself has Remove time.</small></p></div>
-<div class='card'><h3>EmlaLock</h3><label>User ID<br><input name='emlalock_user_id' """ + attrs("emlalock_user_id", True) + ""></label><br><br><label>API key<br><input name='emlalock_api_key' """ + attrs("emlalock_api_key", True, True) + ""></label><br><br><label>Keyholder API key (required for subtract)<br><input name='emlalock_keyholder_api_key' """ + attrs("emlalock_keyholder_api_key", False, True) + ""></label></div>
-<div class='card'><h3>Discord (optional)</h3><p>c-ebot uses Discord slash commands, so <strong>Message Content Intent is not required</strong>. The bot only requests the Guilds intent.</p><p><strong>Need the Discord details?</strong> <a href='https://discord.com/developers/applications' target='_blank' rel='noopener noreferrer'>Open Discord Developer Portal ↗</a> · <a href='https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID' target='_blank' rel='noopener noreferrer'>How to find Server, Channel & User IDs ↗</a></p><label>Bot token<br><input name='discord_bot_token' """ + attrs("discord_bot_token", False, True) + ""></label><br><br><label>Application / Client ID<br><input name='discord_application_id' inputmode='numeric' """ + attrs("discord_application_id") + ""></label><br><br><label>Server / Guild ID<br><input name='discord_guild_id' inputmode='numeric' """ + attrs("discord_guild_id") + ""></label><br><br><label>Log / alert channel ID<br><input name='discord_channel_id' inputmode='numeric' """ + attrs("discord_channel_id") + ""></label><br><br><label>Admin user IDs<br><input name='discord_admin_user_ids' """ + attrs("discord_admin_user_ids") + ""></label><p><small>Admin IDs control /sync, /addtime, /subtracttime and /logs.</small></p>
-""" + (f"<p><strong>Invite link:</strong> <a href='{html.escape(invite)}' target='_blank' rel='noopener noreferrer'>Add c-ebot to your server</a></p>" if invite else "<p>Enter the Application / Client ID to generate the server invite link.</p>") + """
-<p><strong>Discord permissions:</strong> View Channel, Send Messages, Embed Links, Read Message History. Scopes: <code>bot</code> and <code>applications.commands</code>.</p><p><strong>Developer Portal:</strong> create the application, add a Bot, copy the Bot Token and Application ID, then invite it to the server.</p><p><strong>Connection:</strong> """ + ("configured" if discord_configured else "not configured") + """</p></div>
-<div class='card'><div class='actions'><a href='/' style='text-decoration:none'><button type='button'>← Back to Dashboard</button></a>""" + save_button + """</div></div></form>
-<div class='card'><h3>Connections</h3><p>Chaster: <strong>{chaster_status}</strong></p><p>EmlaLock: <strong>{emla_status}</strong></p><p>Discord: <strong>{discord_status}</strong></p></div>
-<div class='card'><h3>Backup / restore</h3><p>Create a portable encrypted backup with a backup password.</p><form method='post' action='/backup-vault'><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Download encrypted backup</button></form><br><form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Import encrypted backup</button></form></div>
-<div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted local credential vault only and unlocks all setup fields again.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET'><button>Factory reset bot</button></form></div>""".format(chaster_status="credentials saved" if s.get("chaster_token") and s.get("chaster_lock_id") else "not configured", emla_status="credentials saved" if s.get("emlalock_user_id") and s.get("emlalock_api_key") else "not configured", discord_status="configured" if discord_configured else "not configured")
+
+    body = (
+        "<div class='card'><h2>Setup</h2><p>Credentials are encrypted locally. Each saved credential is locked individually. Any credential that is still not configured remains editable until it is saved.</p></div>"
+        + lock_note
+        + "<form method='post' action='/setup'>"
+        + "<div class='card'><h3>Chaster</h3>"
+        + "<label>Developer token (wearer / primary account)<br><input name='chaster_token' "
+        + attrs("chaster_token", True, True)
+        + ""></label><br><br>"
+        + "<label>Lock ID<br><input name='chaster_lock_id' "
+        + attrs("chaster_lock_id", True)
+        + ""></label><hr><h4>Chaster permissions required</h4>"
+        + "<p><strong>For normal sync/add-time:</strong> the API token needs the <code>locks</code> scope and the lock contract must grant the token's account <strong>Add time</strong>.</p>"
+        + "<p><strong>For subtract-time:</strong> the account making the Chaster request must have <strong>Remove time</strong>. Chaster's Standard preset normally grants Remove time to the keyholder, not the wearer.</p>"
+        + "<label>Chaster keyholder access token (required if this bot must remove Chaster time as keyholder)<br><input name='chaster_keyholder_token' "
+        + attrs("chaster_keyholder_token", False, True)
+        + ""></label><p><small>The keyholder token should belong to the Chaster keyholder account and be authorized with the <code>keyholder</code> scope. Leave it empty only if the primary token's account itself has Remove time.</small></p></div>"
+        + "<div class='card'><h3>EmlaLock</h3><label>User ID<br><input name='emlalock_user_id' "
+        + attrs("emlalock_user_id", True)
+        + ""></label><br><br><label>API key<br><input name='emlalock_api_key' "
+        + attrs("emlalock_api_key", True, True)
+        + ""></label><br><br><label>Keyholder API key (required for subtract)<br><input name='emlalock_keyholder_api_key' "
+        + attrs("emlalock_keyholder_api_key", False, True)
+        + ""></label></div>"
+        + "<div class='card'><h3>Discord (optional)</h3><p>c-ebot uses Discord slash commands, so <strong>Message Content Intent is not required</strong>. The bot only requests the Guilds intent.</p>"
+        + "<p><strong>Need the Discord details?</strong> <a href='https://discord.com/developers/applications' target='_blank' rel='noopener noreferrer'>Open Discord Developer Portal ↗</a> · <a href='https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID' target='_blank' rel='noopener noreferrer'>How to find Server, Channel & User IDs ↗</a></p>"
+        + "<label>Bot token<br><input name='discord_bot_token' "
+        + attrs("discord_bot_token", False, True)
+        + ""></label><br><br><label>Application / Client ID<br><input name='discord_application_id' inputmode='numeric' "
+        + attrs("discord_application_id")
+        + ""></label><br><br><label>Server / Guild ID<br><input name='discord_guild_id' inputmode='numeric' "
+        + attrs("discord_guild_id")
+        + ""></label><br><br><label>Log / alert channel ID<br><input name='discord_channel_id' inputmode='numeric' "
+        + attrs("discord_channel_id")
+        + ""></label><br><br><label>Admin user IDs<br><input name='discord_admin_user_ids' "
+        + attrs("discord_admin_user_ids")
+        + ""></label><p><small>Admin IDs control /sync, /addtime, /subtracttime and /logs.</small></p>"
+        + (f"<p><strong>Invite link:</strong> <a href='{html.escape(invite)}' target='_blank' rel='noopener noreferrer'>Add c-ebot to your server</a></p>" if invite else "<p>Enter the Application / Client ID to generate the server invite link.</p>")
+        + "<p><strong>Discord permissions:</strong> View Channel, Send Messages, Embed Links, Read Message History. Scopes: <code>bot</code> and <code>applications.commands</code>.</p><p><strong>Developer Portal:</strong> create the application, add a Bot, copy the Bot Token and Application ID, then invite it to the server.</p>"
+        + f"<p><strong>Connection:</strong> {'configured' if discord_configured else 'not configured'}</p></div>"
+        + "<div class='card'><div class='actions'><a href='/' style='text-decoration:none'><button type='button'>← Back to Dashboard</button></a>"
+        + save_button
+        + "</div></div></form>"
+        + f"<div class='card'><h3>Connections</h3><p>Chaster: <strong>{'credentials saved' if s.get('chaster_token') and s.get('chaster_lock_id') else 'not configured'}</strong></p><p>EmlaLock: <strong>{'credentials saved' if s.get('emlalock_user_id') and s.get('emlalock_api_key') else 'not configured'}</strong></p><p>Discord: <strong>{'configured' if discord_configured else 'not configured'}</strong></p></div>"
+        + "<div class='card'><h3>Backup / restore</h3><p>Create a portable encrypted backup with a backup password.</p><form method='post' action='/backup-vault'><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Download encrypted backup</button></form><br><form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Import encrypted backup</button></form></div>"
+        + "<div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted local credential vault only and unlocks all setup fields again.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET'><button>Factory reset bot</button></form></div>"
+    )
     return page("Setup — c-ebot", body, refresh=False)
 
 
