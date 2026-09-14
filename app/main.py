@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import html
 import json
 import os
@@ -12,13 +11,14 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 
-from .secrets import factory_reset, has_secrets, save_secrets, VAULT_PATH, _fernet, load_secrets
+from .secrets import factory_reset, has_secrets, save_secrets, _fernet, load_secrets
 from .sync_engine import manager
+from .discord_bot import start_discord
 
 APP_NAME = "c-ebot"
-app = FastAPI(title="c-ebot", version="0.2.7")
+app = FastAPI(title="c-ebot", version="0.2.8")
 BACKUP_ITERATIONS = 390000
 
 
@@ -58,28 +58,23 @@ button,input,select{{padding:10px;border-radius:8px;border:1px solid #bbb;box-si
 
 
 def _backup_key(password: str, salt: bytes) -> bytes:
-    if not password:
-        raise ValueError("Backup password is required")
+    if not password: raise ValueError("Backup password is required")
     return base64.urlsafe_b64encode(PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=BACKUP_ITERATIONS).derive(password.encode("utf-8")))
 
 
 def make_portable_backup(values: dict[str, str], password: str) -> bytes:
     salt = os.urandom(16)
-    key = _backup_key(password, salt)
-    token = Fernet(key).encrypt(json.dumps(values, separators=(",", ":")).encode("utf-8"))
-    return json.dumps({"format": "c-ebot-backup-v2", "iterations": BACKUP_ITERATIONS, "salt": base64.urlsafe_b64encode(salt).decode("ascii"), "token": token.decode("ascii")}, separators=(",", ":")).encode("utf-8")
+    token = Fernet(_backup_key(password, salt)).encrypt(json.dumps(values, separators=(",", ":")).encode())
+    return json.dumps({"format":"c-ebot-backup-v2","iterations":BACKUP_ITERATIONS,"salt":base64.urlsafe_b64encode(salt).decode(),"token":token.decode()}, separators=(",", ":")).encode()
 
 
 def read_portable_backup(data: bytes, password: str) -> dict[str, str]:
-    wrapper = json.loads(data.decode("utf-8"))
-    if wrapper.get("format") != "c-ebot-backup-v2":
-        raise ValueError("Not a portable c-ebot backup")
+    wrapper = json.loads(data.decode())
+    if wrapper.get("format") != "c-ebot-backup-v2": raise ValueError("Not a portable c-ebot backup")
     salt = base64.urlsafe_b64decode(wrapper["salt"])
-    iterations = int(wrapper.get("iterations", BACKUP_ITERATIONS))
-    key = base64.urlsafe_b64encode(PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=iterations).derive(password.encode("utf-8")))
-    values = json.loads(Fernet(key).decrypt(wrapper["token"].encode("ascii")).decode("utf-8"))
-    if not isinstance(values, dict):
-        raise ValueError("Backup contents are invalid")
+    key = base64.urlsafe_b64encode(PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=int(wrapper.get("iterations", BACKUP_ITERATIONS))).derive(password.encode()))
+    values = json.loads(Fernet(key).decrypt(wrapper["token"].encode()).decode())
+    if not isinstance(values, dict): raise ValueError("Backup contents are invalid")
     return values
 
 
@@ -90,6 +85,7 @@ def valid_credentials(values: dict) -> bool:
 @app.on_event("startup")
 async def startup() -> None:
     await manager.start()
+    await start_discord()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -98,62 +94,51 @@ async def dashboard() -> str:
     configured = has_secrets()
     status = s.status if configured else "WAITING"
     body = f"""
-<div class='card'><h2>Live Time Sync</h2><p><span class='status {status}'>{status}</span></p>
-<p><strong>{html.escape(s.message)}</strong></p><p>Auto Sync: <strong>{'ON' if s.auto_sync else 'OFF'}</strong> · Paused: <strong>{'YES' if s.paused else 'NO'}</strong></p>
-<p>Last check: {when(s.last_check)} · Next check: {when(s.next_check)}</p></div>
-<div class='grid'>
-<div class='card'><h3>Chaster</h3><div class='timer countdown' data-seconds='{'' if s.chaster_seconds is None else int(s.chaster_seconds)}'>{fmt(s.chaster_seconds)}</div><small>Remaining time</small></div>
-<div class='card'><h3>EmlaLock</h3><div class='timer countdown' data-seconds='{'' if s.emlalock_seconds is None else int(s.emlalock_seconds)}'>{fmt(s.emlalock_seconds)}</div><small>Remaining time</small></div>
-<div class='card'><h3>Highest / Target</h3><div class='timer countdown' data-seconds='{'' if s.target_seconds is None else int(s.target_seconds)}'>{fmt(s.target_seconds)}</div><small>Normal sync never shortens the higher timer</small></div>
-</div>
-<div class='card'><h3>Controls</h3><div class='actions'>
-<form method='post' action='/sync'><button>Sync Now</button></form>
-<form method='post' action='/toggle'><button>{'Turn Auto Sync Off' if s.auto_sync else 'Turn Auto Sync On'}</button></form>
-<form method='post' action='/resume'><button>Resume</button></form>
-<form method='post' action='/adjust'>
-<div class='time-input'><input name='amount' type='number' min='1' step='1' placeholder='Amount' aria-label='Amount' required>
-<select name='unit' aria-label='Time unit' required><option value='years'>Years</option><option value='months'>Months</option><option value='days' selected>Days</option><option value='hours'>Hours</option><option value='minutes'>Minutes</option><option value='seconds'>Seconds</option></select></div>
-<button name='direction' value='add'>+ Add to both</button><button name='direction' value='subtract'>− Subtract from both</button>
-</form>
-</div><small>Enter one number and choose Years, Months, Days, Hours, Minutes, or Seconds. Months are treated as 30 days and years as 365 days.</small></div>
-<div class='card'><h3>Activity</h3>{''.join(f"<p><small>{when(x.get('time'))}</small> — {html.escape(str(x.get('action','')))} {html.escape(str(x.get('detail','')))}</p>" for x in (s.history or [])[:15]) or '<p>No activity yet.</p>'}</div>
-"""
+<div class='card'><h2>Live Time Sync</h2><p><span class='status {status}'>{status}</span></p><p><strong>{html.escape(s.message)}</strong></p><p>Auto Sync: <strong>{'ON' if s.auto_sync else 'OFF'}</strong> · Paused: <strong>{'YES' if s.paused else 'NO'}</strong></p><p>Last check: {when(s.last_check)} · Next check: {when(s.next_check)}</p></div>
+<div class='grid'><div class='card'><h3>Chaster</h3><div class='timer'>{fmt(s.chaster_seconds)}</div><small>Remaining time</small></div><div class='card'><h3>EmlaLock</h3><div class='timer'>{fmt(s.emlalock_seconds)}</div><small>Remaining time</small></div><div class='card'><h3>Highest / Target</h3><div class='timer'>{fmt(s.target_seconds)}</div><small>Normal sync never shortens the higher timer</small></div></div>
+<div class='card'><h3>Controls</h3><div class='actions'><form method='post' action='/sync'><button>Sync Now</button></form><form method='post' action='/toggle'><button>{'Turn Auto Sync Off' if s.auto_sync else 'Turn Auto Sync On'}</button></form><form method='post' action='/resume'><button>Resume</button></form><form method='post' action='/adjust'><div class='time-input'><input name='amount' type='number' min='1' step='1' placeholder='Amount' required><select name='unit'><option value='years'>Years</option><option value='months'>Months</option><option value='days' selected>Days</option><option value='hours'>Hours</option><option value='minutes'>Minutes</option><option value='seconds'>Seconds</option></select></div><button name='direction' value='add'>+ Add to both</button><button name='direction' value='subtract'>− Subtract from both</button></form></div></div>
+<div class='card'><h3>Activity</h3>{''.join(f"<p><small>{when(x.get('time'))}</small> — {html.escape(str(x.get('action','')))} {html.escape(str(x.get('detail','')))}</p>" for x in (s.history or [])[:15]) or '<p>No activity yet.</p>'}</div>"""
     return page("c-ebot — Live Sync", body, refresh=True)
 
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_form() -> str:
     configured = has_secrets()
-    body = """<div class='card'><h2>Setup</h2><p>Credentials are encrypted and hidden after saving. This page will not automatically refresh while you enter them.</p><p>Enter the Chaster lock ID from the lock URL so c-ebot knows which lock to synchronize.</p></div>
-<form method='post' action='/setup'><div class='card'><h3>Chaster</h3><label>Developer token<br><input name='chaster_token' type='password' autocomplete='off' required></label><br><br><label>Lock ID<br><input name='chaster_lock_id' autocomplete='off' required></label></div>
+    s = load_secrets() if configured else {}
+    discord_configured = bool(s.get("discord_bot_token"))
+    client_id = s.get("discord_application_id", "")
+    invite = f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot%20applications.commands&permissions=68608" if client_id.isdigit() else ""
+    body = """<div class='card'><h2>Setup</h2><p>Credentials are encrypted and hidden after saving. This page does not automatically refresh while you enter them.</p></div>
+<form method='post' action='/setup'>
+<div class='card'><h3>Chaster</h3><label>Developer token<br><input name='chaster_token' type='password' autocomplete='off' required></label><br><br><label>Lock ID<br><input name='chaster_lock_id' autocomplete='off' required></label></div>
 <div class='card'><h3>EmlaLock</h3><label>User ID<br><input name='emlalock_user_id' autocomplete='off' required></label><br><br><label>API key<br><input name='emlalock_api_key' type='password' autocomplete='off' required></label><br><br><label>Keyholder API key (required for subtract)<br><input name='emlalock_keyholder_api_key' type='password' autocomplete='off' required></label></div>
-<div class='card'><h3>Discord (optional)</h3><label>Discord log channel ID<br><input name='discord_channel_id' autocomplete='off'></label><br><br><button type='submit'>Save and start syncing</button></div></form>
-<div class='card'><h3>Connections</h3><p>Chaster: <strong>{chaster_status}</strong></p><p>EmlaLock: <strong>{emla_status}</strong></p><p>Discord: optional.</p></div>
-<div class='card'><h3>Backup / restore</h3><p>Create a portable encrypted backup with a backup password. You can import it after redownloading c-ebot, even on a new computer.</p>
-<form method='post' action='/backup-vault'><input name='backup_password' type='password' placeholder='Backup password' autocomplete='new-password' required><button type='submit'>Download encrypted backup</button></form>
-<br><form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><input name='backup_password' type='password' placeholder='Backup password' autocomplete='off' required><button type='submit'>Import encrypted backup</button></form>
-<small>The backup password is not stored by c-ebot. You must keep it safe. Your normal APP_SECRET is no longer required to restore a portable backup.</small></div>
-<div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted credential vault only; it does not alter either service account or lock.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET' autocomplete='off'><button>Factory reset bot</button></form></div>""".format(chaster_status="credentials saved" if configured else "not configured", emla_status="credentials saved" if configured else "not configured")
+<div class='card'><h3>Discord (optional)</h3><p>c-ebot uses Discord slash commands, so <strong>Message Content Intent is not required</strong>. The bot only requests the Guilds intent.</p><label>Bot token<br><input name='discord_bot_token' type='password' autocomplete='off' placeholder='Paste the Bot Token from Developer Portal'></label><br><br><label>Application / Client ID<br><input name='discord_application_id' inputmode='numeric' autocomplete='off' placeholder='Application ID / Client ID'></label><br><br><label>Server / Guild ID<br><input name='discord_guild_id' inputmode='numeric' autocomplete='off' placeholder='Server ID'></label><br><br><label>Log / alert channel ID<br><input name='discord_channel_id' inputmode='numeric' autocomplete='off' placeholder='Channel ID'></label><br><br><label>Admin user IDs<br><input name='discord_admin_user_ids' autocomplete='off' placeholder='Your Discord user ID, comma-separated for multiple'></label><p><small>Admin IDs control who may use /sync, /addtime, /subtracttime and /logs. /status remains available to users who can use the application command.</small></p>
+""" + (f"<p><strong>Invite link:</strong> <a href='{html.escape(invite)}' target='_blank'>Add c-ebot to your server</a></p>" if invite else "<p>Enter the Application / Client ID to generate the server invite link.</p>") + """
+<p><strong>Discord permissions requested:</strong> View Channel, Send Messages, Embed Links, Read Message History. Scopes: <code>bot</code> and <code>applications.commands</code>.</p>
+<p><strong>Developer Portal:</strong> create an application, add a Bot, copy the Bot Token and Application ID, then invite it using the generated link above. You need Manage Server to add the app to a server.</p>
+<p><strong>Connection:</strong> """ + ("configured" if discord_configured else "not configured") + """</p></div>
+<div class='card'><button type='submit'>Save and start syncing</button></div></form>
+<div class='card'><h3>Connections</h3><p>Chaster: <strong>{chaster_status}</strong></p><p>EmlaLock: <strong>{emla_status}</strong></p><p>Discord: <strong>{discord_status}</strong></p></div>
+<div class='card'><h3>Backup / restore</h3><p>Create a portable encrypted backup with a backup password. You can import it after redownloading c-ebot.</p><form method='post' action='/backup-vault'><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Download encrypted backup</button></form><br><form method='post' action='/import-vault' enctype='multipart/form-data'><input name='vault_file' type='file' accept='.enc' required><input name='backup_password' type='password' placeholder='Backup password' required><button type='submit'>Import encrypted backup</button></form></div>
+<div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted local credential vault only.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET'><button>Factory reset bot</button></form></div>""".format(chaster_status="credentials saved" if configured else "not configured", emla_status="credentials saved" if configured else "not configured", discord_status="configured" if discord_configured else "not configured")
     return page("Setup — c-ebot", body, refresh=False)
 
 
 @app.post("/setup")
-async def setup_submit(chaster_token: str = Form(""), chaster_lock_id: str = Form(""), emlalock_user_id: str = Form(""), emlalock_api_key: str = Form(""), emlalock_keyholder_api_key: str = Form(""), discord_channel_id: str = Form("")):
-    save_secrets({"chaster_token": chaster_token.strip(), "chaster_lock_id": chaster_lock_id.strip(), "emlalock_user_id": emlalock_user_id.strip(), "emlalock_api_key": emlalock_api_key.strip(), "emlalock_keyholder_api_key": emlalock_keyholder_api_key.strip(), "discord_channel_id": discord_channel_id.strip()})
+async def setup_submit(chaster_token: str = Form(""), chaster_lock_id: str = Form(""), emlalock_user_id: str = Form(""), emlalock_api_key: str = Form(""), emlalock_keyholder_api_key: str = Form(""), discord_bot_token: str = Form(""), discord_application_id: str = Form(""), discord_guild_id: str = Form(""), discord_channel_id: str = Form(""), discord_admin_user_ids: str = Form("")):
+    save_secrets({"chaster_token": chaster_token.strip(), "chaster_lock_id": chaster_lock_id.strip(), "emlalock_user_id": emlalock_user_id.strip(), "emlalock_api_key": emlalock_api_key.strip(), "emlalock_keyholder_api_key": emlalock_keyholder_api_key.strip(), "discord_bot_token": discord_bot_token.strip(), "discord_application_id": discord_application_id.strip(), "discord_guild_id": discord_guild_id.strip(), "discord_channel_id": discord_channel_id.strip(), "discord_admin_user_ids": discord_admin_user_ids.strip()})
     manager.resume()
     asyncio.create_task(manager.sync_once())
+    await start_discord()
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/backup-vault")
 async def backup_vault(backup_password: str = Form("")):
     try:
-        if not has_secrets():
-            raise ValueError("No credentials are configured yet")
-        if len(backup_password) < 8:
-            raise ValueError("Backup password must be at least 8 characters")
-        data = make_portable_backup(load_secrets(), backup_password)
-        return StreamingResponse(iter([data]), media_type="application/octet-stream", headers={"Content-Disposition": 'attachment; filename="c-ebot-vault.enc"'})
+        if not has_secrets(): raise ValueError("No credentials are configured yet")
+        if len(backup_password) < 8: raise ValueError("Backup password must be at least 8 characters")
+        return StreamingResponse(iter([make_portable_backup(load_secrets(), backup_password)]), media_type="application/octet-stream", headers={"Content-Disposition": 'attachment; filename="c-ebot-vault.enc"'})
     except Exception as exc:
         return HTMLResponse(page("Backup failed", f"<div class='card danger'><h2>Backup failed</h2><p>{html.escape(str(exc))}</p><a href='/setup'>Back to Setup</a></div>"), status_code=400)
 
@@ -161,41 +146,32 @@ async def backup_vault(backup_password: str = Form("")):
 @app.post("/import-vault")
 async def import_vault(vault_file: UploadFile = File(...), backup_password: str = Form("")):
     try:
-        if not vault_file.filename or not vault_file.filename.lower().endswith(".enc"):
-            raise ValueError("Please select a c-ebot .enc backup file")
-        if len(backup_password) < 1:
-            raise ValueError("Backup password is required")
+        if not vault_file.filename or not vault_file.filename.lower().endswith(".enc"): raise ValueError("Please select a c-ebot .enc backup file")
         data = await vault_file.read()
-        if not data or len(data) > 1024 * 1024:
-            raise ValueError("Invalid or oversized backup file")
-        try:
-            values = read_portable_backup(data, backup_password)
-        except Exception:
-            values = json.loads(_fernet().decrypt(data).decode("utf-8"))
-        if not isinstance(values, dict) or not valid_credentials(values):
-            raise ValueError("Backup does not contain a valid c-ebot credential set")
+        if not data or len(data) > 1024 * 1024: raise ValueError("Invalid or oversized backup file")
+        try: values = read_portable_backup(data, backup_password)
+        except Exception: values = json.loads(_fernet().decrypt(data).decode())
+        if not isinstance(values, dict) or not valid_credentials(values): raise ValueError("Backup does not contain a valid c-ebot credential set")
         save_secrets({str(k): str(v) for k, v in values.items()})
         manager.resume()
         asyncio.create_task(manager.sync_once())
+        await start_discord()
         return RedirectResponse("/", status_code=303)
     except Exception as exc:
-        return HTMLResponse(page("Import failed", f"<div class='card danger'><h2>Import failed</h2><p>{html.escape(str(exc))}</p><p>Check that you selected a c-ebot backup and entered the correct backup password.</p><a href='/setup'>Back to Setup</a></div>"), status_code=400)
+        return HTMLResponse(page("Import failed", f"<div class='card danger'><h2>Import failed</h2><p>{html.escape(str(exc))}</p><a href='/setup'>Back to Setup</a></div>"), status_code=400)
 
 
 @app.post("/sync")
 async def sync_now():
-    try:
-        await manager.sync_once()
-    except Exception as exc:
-        manager.pause(f"Sync failed: {exc}")
+    try: await manager.sync_once()
+    except Exception as exc: manager.pause(f"Sync failed: {exc}")
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/toggle")
 async def toggle():
     manager.state.auto_sync = not manager.state.auto_sync
-    if manager.state.auto_sync and not manager.state.paused:
-        manager.state.status = "SYNCING"
+    if manager.state.auto_sync and not manager.state.paused: manager.state.status = "SYNCING"
     manager.log("AUTO_SYNC_ON" if manager.state.auto_sync else "AUTO_SYNC_OFF")
     return RedirectResponse("/", status_code=303)
 
@@ -209,16 +185,11 @@ async def resume():
 @app.post("/adjust")
 async def adjust(amount: int = Form(...), unit: str = Form(...), direction: str = Form(...)):
     try:
-        if amount <= 0:
-            raise ValueError("Amount must be greater than zero")
-        multipliers = {"seconds": 1, "minutes": 60, "hours": 3600, "days": 86400, "months": 30 * 86400, "years": 365 * 86400}
-        if unit not in multipliers:
-            raise ValueError("Invalid time unit")
-        total_seconds = amount * multipliers[unit]
-        delta = total_seconds if direction == "add" else -total_seconds
-        await manager.manual_delta(delta)
-    except Exception as exc:
-        manager.pause(f"Manual change failed: {exc}")
+        if amount <= 0: raise ValueError("Amount must be greater than zero")
+        multipliers = {"seconds":1,"minutes":60,"hours":3600,"days":86400,"months":30*86400,"years":365*86400}
+        if unit not in multipliers: raise ValueError("Invalid time unit")
+        await manager.manual_delta(amount * multipliers[unit] * (1 if direction == "add" else -1))
+    except Exception as exc: manager.pause(f"Manual change failed: {exc}")
     return RedirectResponse("/", status_code=303)
 
 
@@ -235,4 +206,4 @@ async def reset(confirmation: str = Form("")):
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": APP_NAME}
+    return {"status":"ok","service":APP_NAME}
