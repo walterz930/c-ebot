@@ -22,7 +22,7 @@ def page(title: str, body: str) -> str:
 body{{font-family:system-ui,sans-serif;max-width:1000px;margin:40px auto;padding:0 20px;background:#f6f7f9;color:#17202a}}
 .card{{background:white;border:1px solid #ddd;border-radius:12px;padding:20px;margin:14px 0}}
 .grid{{display:grid;grid-template-columns:1fr 1fr;gap:14px}} input,button{{padding:10px;border-radius:8px;border:1px solid #bbb;width:100%;box-sizing:border-box}} button{{cursor:pointer}}
-small{{color:#667}} .danger{{border-color:#b33;background:#fff5f5}}
+small{{color:#667}} .danger{{border-color:#b33;background:#fff5f5}} .optional{{border-left:4px solid #888}}
 @media(max-width:700px){{.grid{{grid-template-columns:1fr}}}}
 </style></head><body><h1>c-ebot</h1>{body}</body></html>"""
 
@@ -38,7 +38,8 @@ async def dashboard() -> str:
   <div class='card'><h3>Chaster</h3><p>Status: <strong>Pending API connection</strong></p><p>Developer token: ••••••••</p></div>
   <div class='card'><h3>EmlaLock</h3><p>Status: <strong>Pending API connection</strong></p><p>Credentials: ••••••••</p></div>
 </div>
-<div class='card'><h3>Sync</h3><p>Mode: highest-time-wins</p><p>Auto sync: disabled until setup is complete</p><p>Verification: enabled by design</p><p>Failure policy: pause + Discord alert</p><p>{setup_link}</p></div>
+<div class='card optional'><h3>Discord</h3><p><strong>Optional.</strong> c-ebot can run without Discord. If Discord is not configured, synchronization and the web dashboard do not depend on Discord.</p><p>When enabled, Discord can provide logs, alerts, and administrative commands.</p></div>
+<div class='card'><h3>Sync</h3><p>Mode: highest-time-wins</p><p>Auto sync: disabled until setup is complete</p><p>Verification: enabled by design</p><p>Failure policy: pause + Discord alert when Discord is enabled</p><p>{setup_link}</p></div>
 <div class='card danger'><h3>Factory reset</h3><p>This permanently deletes the encrypted API credentials from the bot. It does not delete anything from Chaster or EmlaLock.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder="Type FACTORY RESET" autocomplete='off'><br><br><button type='submit'>Factory reset bot</button></form></div>
 """
     return page("c-ebot", body)
@@ -57,7 +58,9 @@ async def setup_form() -> str:
 <label>API key<br><input name='emlalock_api_key' type='password' autocomplete='new-password' required></label><br><br>
 <label>Keyholder API key (required for subtract time)<br><input name='emlalock_keyholder_api_key' type='password' autocomplete='new-password' required></label></div>
 </div>
-<div class='card'><h3>Discord</h3><label>Log channel ID<br><input name='discord_channel_id' autocomplete='off'></label><br><br>
+<div class='card optional'><h3>Discord (Optional)</h3>
+<p>You can leave Discord completely disabled. c-ebot will still run without a Discord bot or Discord token.</p>
+<label>Discord log channel ID (optional)<br><input name='discord_channel_id' autocomplete='off'></label><br><br>
 <button type='submit'>Save encrypted credentials</button></div>
 </form>
 """
