@@ -13,15 +13,6 @@ from .sync_engine import manager, set_event_callback
 from .updater import request_update, installed_commit
 
 
-def _admin_ids() -> set[int]:
-    raw = load_secrets().get("discord_admin_user_ids", "")
-    ids: set[int] = set()
-    for value in raw.split(","):
-        value = value.strip()
-        if value.isdigit(): ids.add(int(value))
-    return ids
-
-
 class CEBot(discord.Client):
     def __init__(self) -> None:
         intents = discord.Intents.none(); intents.guilds = True
@@ -51,13 +42,12 @@ client = CEBot()
 
 
 def is_admin(interaction: discord.Interaction) -> bool:
-    if interaction.user.id in _admin_ids(): return True
     permissions = getattr(interaction.user, "guild_permissions", None)
     return bool(permissions and permissions.administrator)
 
 
 async def deny(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message("You are not authorized to control c-ebot. You need the Discord Administrator permission or your User ID must be listed under Admin User IDs.", ephemeral=True)
+    await interaction.response.send_message("You are not authorized to control c-ebot. You need the Discord Administrator permission.", ephemeral=True)
 
 
 def seconds_from(amount: int, unit: str) -> int:
@@ -189,8 +179,7 @@ async def whoami(interaction: discord.Interaction) -> None:
 
 @client.tree.command(name="permissions", description="Show who can control c-ebot")
 async def permissions(interaction: discord.Interaction) -> None:
-    ids = sorted(_admin_ids()); listed = ", ".join(f"`{x}`" for x in ids) if ids else "none configured"
-    await interaction.response.send_message(f"**c-ebot control permissions**\n• Discord server Administrators: `authorized`\n• Admin User IDs: {listed}\n• Timer-changing commands: admin-only\n• Updates: admin-only", ephemeral=True)
+    await interaction.response.send_message("**c-ebot control permissions**\n• Discord server Administrators: `authorized`\n• Admin User IDs: `not used`\n• Timer-changing commands: admin-only\n• Updates: admin-only", ephemeral=True)
 
 
 @client.tree.command(name="nextsync", description="Show when the next automatic check is due")
