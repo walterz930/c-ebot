@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 $AppDir = Join-Path $Root 'windows\standalone'
 $Venv = Join-Path $AppDir '.venv'
+$LogDir = Join-Path $AppDir 'logs'
 
 Write-Host 'c-ebot Windows Standalone Installer' -ForegroundColor Cyan
 Write-Host 'This mode does NOT require Docker, WSL, or CPU virtualization.'
@@ -33,16 +34,61 @@ DISCORD_BOT_TOKEN=
 "@ | Set-Content (Join-Path $AppDir '.env') -Encoding UTF8
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $AppDir 'data') | Out-Null
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 $Launcher = Join-Path $AppDir 'start-c-ebot.cmd'
 @"
 @echo off
+setlocal
 cd /d "%~dp0"
+if not exist "logs" mkdir "logs"
+echo. >> "logs\c-ebot.log"
+echo ================================================== >> "logs\c-ebot.log"
+echo c-ebot starting %date% %time% >> "logs\c-ebot.log"
+echo ================================================== >> "logs\c-ebot.log"
 call ".venv\Scripts\activate.bat"
-python -m uvicorn app.main:app --env-file ".env" --host 127.0.0.1 --port 8080
+python -m uvicorn app.main:app --env-file ".env" --host 127.0.0.1 --port 8080 >> "logs\c-ebot.log" 2>&1
+set "EXITCODE=%ERRORLEVEL%"
+echo. >> "logs\c-ebot.log"
+echo c-ebot stopped with exit code %EXITCODE% at %date% %time% >> "logs\c-ebot.log"
+if not "%EXITCODE%"=="0" (
+  echo.
+  echo c-ebot stopped because of an error.
+  echo The full error is in:
+  echo %~dp0logs\c-ebot.log
+  echo.
+  type "logs\c-ebot.log"
+  echo.
+  pause
+)
+exit /b %EXITCODE%
 "@ | Set-Content $Launcher -Encoding ASCII
 
 Start-Process $Launcher
-Start-Sleep -Seconds 3
-Start-Process 'http://localhost:8080'
-Write-Host 'c-ebot is starting. The dashboard will open in your browser.' -ForegroundColor Green
+
+$Ready = $false
+for ($i = 0; $i -lt 20; $i++) {
+  Start-Sleep -Milliseconds 500
+  try {
+    $response = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/health' -UseBasicParsing -TimeoutSec 1
+    if ($response.StatusCode -eq 200) {
+      $Ready = $true
+      break
+    }
+  } catch {
+    # Keep waiting for uvicorn to finish starting.
+  }
+}
+
+if ($Ready) {
+  Start-Process 'http://localhost:8080'
+  Write-Host 'c-ebot is running. The dashboard will open in your browser.' -ForegroundColor Green
+} else {
+  Write-Host 'c-ebot did not start correctly.' -ForegroundColor Red
+  Write-Host "Check the startup log: $LogDir\c-ebot.log" -ForegroundColor Yellow
+  if (Test-Path (Join-Path $LogDir 'c-ebot.log')) {
+    Write-Host '--- Last startup log ---' -ForegroundColor Yellow
+    Get-Content (Join-Path $LogDir 'c-ebot.log') -Tail 80
+  }
+  exit 1
+}
