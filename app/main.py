@@ -11,7 +11,7 @@ from .secrets import factory_reset, has_secrets, save_secrets
 from .sync_engine import manager
 
 APP_NAME = "c-ebot"
-app = FastAPI(title="c-ebot", version="0.2.1")
+app = FastAPI(title="c-ebot", version="0.2.2")
 
 
 def fmt(seconds: int | None) -> str:
@@ -43,6 +43,7 @@ body{{font-family:system-ui,sans-serif;max-width:1100px;margin:30px auto;padding
 .status{{display:inline-block;padding:6px 10px;border-radius:999px;background:#eee;font-weight:700}} .SYNCED{{background:#dff7e7}} .SYNCING{{background:#fff0c2}} .PAUSED{{background:#ffdede}} .WAITING{{background:#eee}}
 button,input,select{{padding:10px;border-radius:8px;border:1px solid #bbb;box-sizing:border-box}} button{{cursor:pointer}} input{{width:100%}}
 .actions{{display:flex;gap:8px;flex-wrap:wrap}} .actions form{{display:flex;gap:6px;align-items:center}} .actions button{{width:auto}} small{{color:#667}} .danger{{border-color:#b33;background:#fff5f5}}
+.time-input{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}} .time-input input{{width:85px}} .time-input span{{font-weight:700}}
 @media(max-width:800px){{.grid{{grid-template-columns:1fr}}}}
 </style></head><body><h1>c-ebot</h1>{body}</body></html>"""
 
@@ -70,8 +71,11 @@ async def dashboard() -> str:
 <form method='post' action='/sync'><button>Sync Now</button></form>
 <form method='post' action='/toggle'><button>{'Turn Auto Sync Off' if s.auto_sync else 'Turn Auto Sync On'}</button></form>
 <form method='post' action='/resume'><button>Resume</button></form>
-<form method='post' action='/adjust'><input name='seconds' type='number' min='1' placeholder='Seconds' required><button name='direction' value='add'>+ Add to both</button><button name='direction' value='subtract'>− Subtract from both</button></form>
-</div></div>
+<form method='post' action='/adjust'>
+<div class='time-input'><input name='hours' type='number' min='0' max='999' placeholder='HH' aria-label='Hours' required><span>:</span><input name='minutes' type='number' min='0' max='59' placeholder='MM' aria-label='Minutes' required><span>:</span><input name='seconds' type='number' min='0' max='59' placeholder='SS' aria-label='Seconds' required></div>
+<button name='direction' value='add'>+ Add to both</button><button name='direction' value='subtract'>− Subtract from both</button>
+</form>
+</div><small>Enter time as HH : MM : SS. For example, 01 : 30 : 00 = 1 hour 30 minutes.</small></div>
 <div class='card'><h3>Activity</h3>{''.join(f"<p><small>{when(x.get('time'))}</small> — {html.escape(str(x.get('action','')))} {html.escape(str(x.get('detail','')))}</p>" for x in (s.history or [])[:15]) or '<p>No activity yet.</p>'}</div>
 <div class='card'><h3>Connections</h3><p>Chaster: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>EmlaLock: <strong>{'credentials saved' if configured else 'not configured'}</strong></p><p>Discord: optional.</p><p><a href='/setup'>Setup / replace credentials</a></p></div>
 <div class='card danger'><h3>Factory reset</h3><p>Deletes the encrypted credential vault only; it does not alter either service account or lock.</p><form method='post' action='/factory-reset'><input name='confirmation' placeholder='Type FACTORY RESET' autocomplete='off'><button>Factory reset bot</button></form></div>
@@ -121,9 +125,15 @@ async def resume():
 
 
 @app.post("/adjust")
-async def adjust(seconds: int = Form(...), direction: str = Form(...)):
+async def adjust(hours: int = Form(...), minutes: int = Form(...), seconds: int = Form(...), direction: str = Form(...)):
     try:
-        delta = abs(seconds) if direction == "add" else -abs(seconds)
+        hours = max(0, hours)
+        minutes = max(0, min(59, minutes))
+        seconds = max(0, min(59, seconds))
+        total_seconds = hours * 3600 + minutes * 60 + seconds
+        if total_seconds <= 0:
+            raise ValueError("Time must be greater than zero")
+        delta = total_seconds if direction == "add" else -total_seconds
         await manager.manual_delta(delta)
     except Exception as exc:
         manager.pause(f"Manual change failed: {exc}")
