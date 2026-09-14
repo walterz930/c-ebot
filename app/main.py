@@ -55,7 +55,52 @@ input:disabled,select:disabled,button:disabled{{background:#eee;color:#777;curso
 .time-input{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}} .time-input input{{width:110px}} .time-input select{{min-width:130px}}
 .topbar{{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}} .topbar h1{{margin:0}} .setup-button{{display:inline-block;text-decoration:none}} .setup-button button{{font-weight:700}}
 @media(max-width:800px){{.grid{{grid-template-columns:1fr}}}}
-</style></head><body><div class='topbar'><h1>c-ebot</h1><a class='setup-button' href='/setup'><button type='button'>Setup</button></a></div>{body}</body></html>"""
+</style></head><body><div class='topbar'><h1>c-ebot</h1><a class='setup-button' href='/setup'><button type='button'>Setup</button></a></div>{body}
+<script>
+(() => {{
+  const timers = [
+    document.getElementById('chaster-timer'),
+    document.getElementById('emlalock-timer'),
+    document.getElementById('target-timer')
+  ].filter(Boolean);
+  if (!timers.length) return;
+
+  const values = new Map();
+  for (const el of timers) {{
+    const raw = el.dataset.seconds;
+    if (raw === '') continue;
+    const value = Number(raw);
+    if (Number.isFinite(value)) values.set(el, Math.max(0, Math.floor(value)));
+  }}
+
+  function format(seconds) {{
+    seconds = Math.max(0, Math.floor(seconds));
+    const days = Math.floor(seconds / 86400);
+    seconds %= 86400;
+    const hours = Math.floor(seconds / 3600);
+    seconds %= 3600;
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    const parts = [];
+    if (days) parts.push(days + 'd');
+    if (hours || days) parts.push(hours + 'h');
+    if (minutes || hours || days) parts.push(minutes + 'm');
+    parts.push(secs + 's');
+    return parts.join(' ');
+  }}
+
+  function render() {{
+    for (const [el, value] of values) el.textContent = format(value);
+  }}
+
+  render();
+  setInterval(() => {{
+    for (const [el, value] of values) values.set(el, Math.max(0, value - 1));
+    render();
+  }}, 1000);
+}})();
+</script>
+</body></html>"""
 
 
 def _backup_key(password: str, salt: bytes) -> bytes:
@@ -99,10 +144,10 @@ async def dashboard() -> str:
     status = s.status if configured else "WAITING"
     body = f"""
 <div class='card'><h2>Live Time Sync</h2><p><span class='status {status}'>{status}</span></p><p><strong>{html.escape(s.message)}</strong></p><p>Auto Sync: <strong>{'ON' if s.auto_sync else 'OFF'}</strong> · Paused: <strong>{'YES' if s.paused else 'NO'}</strong></p><p>Last check: {when(s.last_check)} · Next check: {when(s.next_check)}</p></div>
-<div class='grid'><div class='card'><h3>Chaster</h3><div class='timer'>{fmt(s.chaster_seconds)}</div><small>Remaining time</small></div><div class='card'><h3>EmlaLock</h3><div class='timer'>{fmt(s.emlalock_seconds)}</div><small>Remaining time</small></div><div class='card'><h3>Highest / Target</h3><div class='timer'>{fmt(s.target_seconds)}</div><small>Normal sync never shortens the higher timer</small></div></div>
+<div class='grid'><div class='card'><h3>Chaster</h3><div id='chaster-timer' class='timer' data-seconds='{'' if s.chaster_seconds is None else int(s.chaster_seconds)}'>{fmt(s.chaster_seconds)}</div><small>Remaining time</small></div><div class='card'><h3>EmlaLock</h3><div id='emlalock-timer' class='timer' data-seconds='{'' if s.emlalock_seconds is None else int(s.emlalock_seconds)}'>{fmt(s.emlalock_seconds)}</div><small>Remaining time</small></div><div class='card'><h3>Highest / Target</h3><div id='target-timer' class='timer' data-seconds='{'' if s.target_seconds is None else int(s.target_seconds)}'>{fmt(s.target_seconds)}</div><small>Normal sync never shortens the higher timer</small></div></div>
 <div class='card'><h3>Controls</h3><div class='actions'><form method='post' action='/sync'><button>Sync Now</button></form><form method='post' action='/toggle'><button>{'Turn Auto Sync Off' if s.auto_sync else 'Turn Auto Sync On'}</button></form><form method='post' action='/resume'><button>Resume</button></form><form method='post' action='/adjust'><div class='time-input'><input name='amount' type='number' min='1' step='1' placeholder='Amount' required><select name='unit'><option value='years'>Years</option><option value='months'>Months</option><option value='days' selected>Days</option><option value='hours'>Hours</option><option value='minutes'>Minutes</option><option value='seconds'>Seconds</option></select></div><button name='direction' value='add'>+ Add to both</button><button name='direction' value='subtract'>− Subtract from both</button></form></div></div>
 <div class='card'><h3>Activity</h3>{''.join(f"<p><small>{when(x.get('time'))}</small> — {html.escape(str(x.get('action','')))} {html.escape(str(x.get('detail','')))}</p>" for x in (s.history or [])[:15]) or '<p>No activity yet.</p>'}</div>"""
-    return page("c-ebot — Live Sync", body, refresh=True)
+    return page("c-ebot — Live Sync", body, refresh=False)
 
 
 @app.get("/setup", response_class=HTMLResponse)
