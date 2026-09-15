@@ -36,7 +36,7 @@ def format_duration(seconds: int | float | None) -> str:
     days, rem = divmod(rem, 86400)
     hours, rem = divmod(rem, 3600)
     minutes, secs = divmod(rem, 60)
-    return f"{years} years, {months} months, {days} days, {hours} hours, {minutes} minutes, {secs} seconds"
+    return f"{years:02d}:{months:02d}:{days:02d}:{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 @dataclass
@@ -183,10 +183,7 @@ class SyncManager:
         if delta < 0:
             token = s.get("chaster_keyholder_token", "").strip() or token
             if not s.get("chaster_keyholder_token", "").strip():
-                raise SyncError(
-                    "Chaster remove-time requires the account performing the request to have the lock's 'Remove time' permission. "
-                    "If the bot is acting as the keyholder, add a Chaster keyholder access token with the 'keyholder' scope in Setup."
-                )
+                raise SyncError("Chaster remove-time requires the account performing the request to have the lock's 'Remove time' permission. If the bot is acting as the keyholder, add a Chaster keyholder access token with the 'keyholder' scope in Setup.")
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
         url = f"{CHASTER_BASE}/locks/{s['chaster_lock_id']}/update-time"
         response = await client.post(url, headers=headers, json={"duration": delta})
@@ -197,12 +194,7 @@ class SyncManager:
             if action_response.status_code != 404:
                 response = action_response
             else:
-                raise SyncError(
-                    "Chaster rejected the time-change route with 404 Not Found. "
-                    "The installed Public API does not expose either the legacy update-time route "
-                    "or the action route for this token/lock. Refresh the Chaster developer token "
-                    "and verify the lock's Add time/Remove time permission."
-                )
+                raise SyncError("Chaster rejected the time-change route with 404 Not Found. The installed Public API does not expose either the legacy update-time route or the action route for this token/lock. Refresh the Chaster developer token and verify the lock's Add time/Remove time permission.")
         if response.status_code == 403:
             detail = ""
             try:
