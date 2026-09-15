@@ -82,7 +82,7 @@ input:disabled,select:disabled,button:disabled{{background:#eee;color:#777;curso
     seconds %= 3600;
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${years} years, ${months} months, ${days} days, ${hours} hours, ${minutes} minutes, ${secs} seconds`;
+    return `${{years}} years, ${{months}} months, ${{days}} days, ${{hours}} hours, ${{minutes}} minutes, ${{secs}} seconds`;
   }}
 
   function render() {{
