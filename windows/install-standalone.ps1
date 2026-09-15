@@ -38,7 +38,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $AppDir 'data') | Out-Null
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 try {
-  $headers = @{ 'Accept' = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2026-03-10' }
+  $headers = @{ 'Accept' = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
   $commit = Invoke-RestMethod -Uri 'https://api.github.com/repos/walterz930/c-ebot/commits/main' -Headers $headers -TimeoutSec 15
   Set-Content -Path (Join-Path $AppDir '.cebot_commit') -Value $commit.sha -Encoding ASCII
 } catch {
@@ -66,7 +66,10 @@ Write-Host "==================================================" -ForegroundColor
 Set-Location $AppDir
 $checker = Join-Path $AppDir "check-for-updates.ps1"
 if (Test-Path $checker) {
-    Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$checker) -WindowStyle Hidden
+    Write-Host "[UPDATE] Starting GitHub update check..." -ForegroundColor DarkCyan
+    Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$checker) -WindowStyle Normal
+} else {
+    Write-Host "[UPDATE] Update checker not found: $checker" -ForegroundColor Yellow
 }
 
 $python = Join-Path $AppDir ".venv\Scripts\python.exe"
