@@ -20,6 +20,12 @@ class CEBot(discord.Client):
         self.tree = app_commands.CommandTree(self); self.ready_once = False
 
     async def setup_hook(self) -> None:
+        # Register slash commands in alphabetical order in Discord.
+        commands = sorted(self.tree.get_commands(), key=lambda command: command.name.lower())
+        self.tree.clear_commands(guild=None)
+        for command in commands:
+            self.tree.add_command(command)
+
         settings = load_secrets(); guild_id = settings.get("discord_guild_id", "").strip()
         if guild_id.isdigit():
             guild = discord.Object(id=int(guild_id))
