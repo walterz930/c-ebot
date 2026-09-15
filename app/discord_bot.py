@@ -255,9 +255,8 @@ async def send_alert(message: str) -> None:
     if channel is None:
         try: channel = await client.fetch_channel(int(channel_id))
         except Exception: return
-    if hasattr(channel, "send"):
-        try: await channel.send(message)
-        except Exception: pass
+    try: await channel.send(message)
+    except Exception: pass
 
 
 async def discord_event(action: str, detail: str) -> None:
@@ -272,3 +271,7 @@ def run_discord_bot() -> Optional[asyncio.Task]:
     token = load_secrets().get("discord_bot_token", "").strip()
     if not token: return None
     return asyncio.create_task(client.start(token))
+
+
+async def start_discord() -> None:
+    run_discord_bot()
