@@ -36,7 +36,9 @@ def format_duration(seconds: int | float | None) -> str:
     days, rem = divmod(rem, 86400)
     hours, rem = divmod(rem, 3600)
     minutes, secs = divmod(rem, 60)
-    return f"{years:02d}:{months:02d}:{days:02d}:{hours:02d}:{minutes:02d}:{secs:02d}"
+    parts = [years, months, days, hours, minutes, secs]
+    first = next((i for i, value in enumerate(parts) if value), len(parts) - 1)
+    return ":".join(f"{value:02d}" for value in parts[first:])
 
 
 @dataclass
