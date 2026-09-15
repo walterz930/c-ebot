@@ -25,16 +25,13 @@ BACKUP_ITERATIONS = 390000
 def fmt(seconds: int | None) -> str:
     if seconds is None:
         return "—"
-    seconds = max(0, int(seconds))
-    d, r = divmod(seconds, 86400)
-    h, r = divmod(r, 3600)
-    m, s = divmod(r, 60)
-    parts = []
-    if d: parts.append(f"{d}d")
-    if h or d: parts.append(f"{h}h")
-    if m or h or d: parts.append(f"{m}m")
-    parts.append(f"{s}s")
-    return " ".join(parts)
+    total = max(0, int(seconds))
+    years, rem = divmod(total, 365 * 86400)
+    months, rem = divmod(rem, 30 * 86400)
+    days, rem = divmod(rem, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{years} years, {months} months, {days} days, {hours} hours, {minutes} minutes, {secs} seconds"
 
 
 def when(ts: float | None) -> str:
@@ -75,18 +72,17 @@ input:disabled,select:disabled,button:disabled{{background:#eee;color:#777;curso
 
   function format(seconds) {{
     seconds = Math.max(0, Math.floor(seconds));
+    let years = Math.floor(seconds / (365 * 86400));
+    seconds %= 365 * 86400;
+    let months = Math.floor(seconds / (30 * 86400));
+    seconds %= 30 * 86400;
     const days = Math.floor(seconds / 86400);
     seconds %= 86400;
     const hours = Math.floor(seconds / 3600);
     seconds %= 3600;
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    const parts = [];
-    if (days) parts.push(days + 'd');
-    if (hours || days) parts.push(hours + 'h');
-    if (minutes || hours || days) parts.push(minutes + 'm');
-    parts.push(secs + 's');
-    return parts.join(' ');
+    return `${years} years, ${months} months, ${days} days, ${hours} hours, ${minutes} minutes, ${secs} seconds`;
   }}
 
   function render() {{
