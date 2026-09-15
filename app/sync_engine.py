@@ -176,7 +176,31 @@ class SyncManager:
                     "If the bot is acting as the keyholder, add a Chaster keyholder access token with the 'keyholder' scope in Setup."
                 )
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
-        response = await client.post(f"{CHASTER_BASE}/locks/{s['chaster_lock_id']}/update-time", headers=headers, json={"duration": delta})
+        url = f"{CHASTER_BASE}/locks/{s['chaster_lock_id']}/update-time"
+        response = await client.post(url, headers=headers, json={"duration": delta})
+
+        # Chaster's Public API has historically exposed time changes at
+        # /locks/{lockId}/update-time. If a deployment has moved the action
+        # route, try the action-style contract used by Chaster's current lock
+        # action documentation before reporting a hard failure.
+        if response.status_code == 404:
+            action_name = "add_time" if delta >= 0 else "remove_time"
+            action_url = f"{CHASTER_BASE}/locks/{s['chaster_lock_id']}/action"
+            action_response = await client.post(
+                action_url,
+                headers=headers,
+                json={"action": {"name": action_name, "params": abs(delta)}},
+            )
+            if action_response.status_code != 404:
+                response = action_response
+            else:
+                raise SyncError(
+                    "Chaster rejected the time-change route with 404 Not Found. "
+                    "The installed Public API does not expose either the legacy update-time route "
+                    "or the action route for this token/lock. Refresh the Chaster developer token "
+                    "and verify the lock's Add time/Remove time permission."
+                )
+
         if response.status_code == 403:
             detail = ""
             try:
