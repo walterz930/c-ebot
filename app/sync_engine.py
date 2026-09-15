@@ -27,6 +27,18 @@ def set_event_callback(callback: Callable[[str, str], Any] | None) -> None:
     _event_callback = callback
 
 
+def format_duration(seconds: int | float | None) -> str:
+    if seconds is None:
+        return "unknown"
+    total = max(0, int(seconds))
+    years, rem = divmod(total, 365 * 86400)
+    months, rem = divmod(rem, 30 * 86400)
+    days, rem = divmod(rem, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{years} years, {months} months, {days} days, {hours} hours, {minutes} minutes, {secs} seconds"
+
+
 @dataclass
 class RuntimeState:
     auto_sync: bool = True
@@ -178,19 +190,10 @@ class SyncManager:
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
         url = f"{CHASTER_BASE}/locks/{s['chaster_lock_id']}/update-time"
         response = await client.post(url, headers=headers, json={"duration": delta})
-
-        # Chaster's Public API has historically exposed time changes at
-        # /locks/{lockId}/update-time. If a deployment has moved the action
-        # route, try the action-style contract used by Chaster's current lock
-        # action documentation before reporting a hard failure.
         if response.status_code == 404:
             action_name = "add_time" if delta >= 0 else "remove_time"
             action_url = f"{CHASTER_BASE}/locks/{s['chaster_lock_id']}/action"
-            action_response = await client.post(
-                action_url,
-                headers=headers,
-                json={"action": {"name": action_name, "params": abs(delta)}},
-            )
+            action_response = await client.post(action_url, headers=headers, json={"action": {"name": action_name, "params": abs(delta)}})
             if action_response.status_code != 404:
                 response = action_response
             else:
@@ -200,7 +203,6 @@ class SyncManager:
                     "or the action route for this token/lock. Refresh the Chaster developer token "
                     "and verify the lock's Add time/Remove time permission."
                 )
-
         if response.status_code == 403:
             detail = ""
             try:
@@ -248,7 +250,7 @@ class SyncManager:
             self.state.chaster_seconds, self.state.emlalock_seconds = c, e
             self.state.target_seconds = max(c, e)
             self.state.last_check = time.time()
-            print(f"[c-ebot] Timers: Chaster={c}s | EmlaLock={e}s | Target={max(c,e)}s", flush=True)
+            print(f"[c-ebot] Timers: Chaster={format_duration(c)} | EmlaLock={format_duration(e)} | Target={format_duration(max(c,e))}", flush=True)
             if abs(c - e) <= 1:
                 self.state.status = "SYNCED"
                 self.state.message = "Timers synchronized"
@@ -258,8 +260,8 @@ class SyncManager:
             delta = e - c
             s = load_secrets()
             lower = "Chaster" if c < e else "EmlaLock"
-            self.state.message = f"Extending {lower} by {abs(delta)}s"
-            print(f"[c-ebot] Adjusting {lower} by {abs(delta)}s (higher timer is authoritative).", flush=True)
+            self.state.message = f"Extending {lower} by {format_duration(abs(delta))}"
+            print(f"[c-ebot] Adjusting {lower} by {format_duration(abs(delta))} (higher timer is authoritative).", flush=True)
             async with httpx.AsyncClient(timeout=20) as client:
                 if c < e:
                     await self._chaster_delta(client, s, delta)
@@ -269,12 +271,12 @@ class SyncManager:
             c2, e2 = await self.read_timers()
             self.state.chaster_seconds, self.state.emlalock_seconds = c2, e2
             if abs(c2 - e2) > 2:
-                raise SyncError(f"Verification failed: Chaster={c2}s, EmlaLock={e2}s")
+                raise SyncError(f"Verification failed: Chaster={format_duration(c2)}, EmlaLock={format_duration(e2)}")
             self.state.target_seconds = max(c2, e2)
             self.state.status = "SYNCED"
             self.state.message = "Timers synchronized and verified"
-            print(f"[c-ebot] VERIFIED: Chaster={c2}s | EmlaLock={e2}s", flush=True)
-            self.log("AUTO_SYNC", f"{lower} extended by {abs(delta)}s; verified Chaster={c2}s, EmlaLock={e2}s")
+            print(f"[c-ebot] VERIFIED: Chaster={format_duration(c2)} | EmlaLock={format_duration(e2)}", flush=True)
+            self.log("AUTO_SYNC", f"{lower} extended by {format_duration(abs(delta))}; verified Chaster={format_duration(c2)}, EmlaLock={format_duration(e2)}")
             self._save()
 
     async def manual_delta(self, delta: int, actor: str = "dashboard") -> None:
@@ -286,8 +288,8 @@ class SyncManager:
             if not lock_id:
                 raise SyncError("Chaster lock ID is not configured")
             direction = "add" if delta > 0 else "subtract"
-            print(f"[c-ebot] MANUAL {direction}: changing both timers by {abs(delta)}s", flush=True)
-            self.state.message = f"Manual {direction} {abs(delta)}s"
+            print(f"[c-ebot] MANUAL {direction}: changing both timers by {format_duration(abs(delta))}", flush=True)
+            self.state.message = f"Manual {direction} {format_duration(abs(delta))}"
             async with httpx.AsyncClient(timeout=20) as client:
                 await self._chaster_delta(client, s, delta)
                 await self._emlalock_delta(client, s, delta)
@@ -295,13 +297,13 @@ class SyncManager:
             c, e = await self.read_timers()
             self.state.chaster_seconds, self.state.emlalock_seconds = c, e
             if abs(c - e) > 2:
-                raise SyncError(f"Manual verification failed: Chaster={c}s, EmlaLock={e}s")
+                raise SyncError(f"Manual verification failed: Chaster={format_duration(c)}, EmlaLock={format_duration(e)}")
             self.state.target_seconds = max(c, e)
             self.state.status = "SYNCED"
             self.state.message = "Manual change applied and verified"
             self.state.paused = False
-            print(f"[c-ebot] VERIFIED manual change: Chaster={c}s | EmlaLock={e}s", flush=True)
-            self.log("MANUAL_ADD" if delta > 0 else "MANUAL_SUBTRACT", f"{abs(delta)}s by {actor}; verified Chaster={c}s, EmlaLock={e}s")
+            print(f"[c-ebot] VERIFIED manual change: Chaster={format_duration(c)} | EmlaLock={format_duration(e)}", flush=True)
+            self.log("MANUAL_ADD" if delta > 0 else "MANUAL_SUBTRACT", f"{format_duration(abs(delta))} by {actor}; verified Chaster={format_duration(c)}, EmlaLock={format_duration(e)}")
             self._save()
 
 
