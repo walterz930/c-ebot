@@ -15,6 +15,13 @@ function Log($Text) {
   Add-Content -Path $Log -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Text"
 }
 
+function Start-PreviousVersion {
+  $launcher = Join-Path $AppDir 'start-c-ebot.ps1'
+  if (Test-Path $launcher) {
+    Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$launcher) -WindowStyle Normal
+  }
+}
+
 try {
   Log "Starting update to $TargetSha"
   New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
@@ -46,14 +53,18 @@ try {
   New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
   Copy-Item (Join-Path $AppDir 'app') (Join-Path $BackupDir 'app') -Recurse -Force
   Copy-Item (Join-Path $AppDir 'requirements.txt') (Join-Path $BackupDir 'requirements.txt') -Force
-  if (Test-Path (Join-Path $AppDir 'start-c-ebot.cmd')) { Copy-Item (Join-Path $AppDir 'start-c-ebot.cmd') (Join-Path $BackupDir 'start-c-ebot.cmd') -Force }
+  foreach ($file in @('start-c-ebot.ps1','check-for-updates.ps1')) {
+    $path = Join-Path $AppDir $file
+    if (Test-Path $path) { Copy-Item $path (Join-Path $BackupDir $file) -Force }
+  }
 
   Log "Installing application files"
   Remove-Item (Join-Path $AppDir 'app') -Recurse -Force
   Copy-Item (Join-Path $SourceRoot.FullName 'app') (Join-Path $AppDir 'app') -Recurse -Force
   Copy-Item (Join-Path $SourceRoot.FullName 'requirements.txt') (Join-Path $AppDir 'requirements.txt') -Force
-  if (Test-Path (Join-Path $SourceRoot.FullName 'windows\update-standalone.ps1')) {
-    Copy-Item (Join-Path $SourceRoot.FullName 'windows\update-standalone.ps1') (Join-Path $AppDir 'update-standalone.ps1') -Force
+  foreach ($file in @('update-standalone.ps1','check-for-updates.ps1')) {
+    $source = Join-Path $SourceRoot.FullName "windows\$file"
+    if (Test-Path $source) { Copy-Item $source (Join-Path $AppDir $file) -Force }
   }
 
   $MainPy = Join-Path $AppDir 'app\main.py'
@@ -62,51 +73,6 @@ try {
     $mainText = $mainText.Replace('attrs("chaster_lock_id", True)', 'attrs("chaster_lock_id", False)')
     Set-Content -Path $MainPy -Value $mainText -Encoding UTF8
     Log "Applied Chaster Lock ID editable-field fix"
-  }
-
-  $DiscordPy = Join-Path $AppDir 'app\discord_bot.py'
-  if (Test-Path $DiscordPy) {
-    $discordText = Get-Content -Path $DiscordPy -Raw
-    $old = @'
-def format_seconds(value: int | None) -> str:
-    if value is None: return "unknown"
-    value = max(0, int(value)); days, rem = divmod(value, 86400); hours, rem = divmod(rem, 3600); minutes, seconds = divmod(rem, 60)
-    parts = []
-    if days: parts.append(f"{days}d")
-    if hours or days: parts.append(f"{hours}h")
-    if minutes or hours or days: parts.append(f"{minutes}m")
-    parts.append(f"{seconds}s"); return " ".join(parts)
-'@
-    $new = @'
-def format_seconds(value: int | None) -> str:
-    if value is None: return "unknown"
-    value = max(0, int(value))
-    years, rem = divmod(value, 365 * 86400)
-    months, rem = divmod(rem, 30 * 86400)
-    days, rem = divmod(rem, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, seconds = divmod(rem, 60)
-
-    parts = []
-    for amount, singular, plural in (
-        (years, "year", "years"),
-        (months, "month", "months"),
-        (days, "day", "days"),
-        (hours, "hour", "hours"),
-        (minutes, "minute", "minutes"),
-        (seconds, "second", "seconds"),
-    ):
-        if amount:
-            parts.append(f"{amount} {singular if amount == 1 else plural}")
-    if not parts:
-        return "0 seconds"
-    return " ".join(parts)
-'@
-    if ($discordText.Contains($old)) {
-      $discordText = $discordText.Replace($old, $new)
-      Set-Content -Path $DiscordPy -Value $discordText -Encoding UTF8
-      Log "Applied Discord human-readable duration formatting"
-    }
   }
 
   Set-Content -Path (Join-Path $AppDir '.cebot_commit') -Value $TargetSha -Encoding ASCII
@@ -118,7 +84,7 @@ def format_seconds(value: int | None) -> str:
   Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item $BackupDir -Recurse -Force -ErrorAction SilentlyContinue
   Log "Update installed successfully; restarting"
-  Start-Process (Join-Path $AppDir 'start-c-ebot.cmd')
+  Start-PreviousVersion
 } catch {
   Log "UPDATE FAILED: $($_.Exception.Message)"
   if (Test-Path (Join-Path $BackupDir 'app')) {
@@ -126,8 +92,12 @@ def format_seconds(value: int | None) -> str:
     Remove-Item (Join-Path $AppDir 'app') -Recurse -Force -ErrorAction SilentlyContinue
     Copy-Item (Join-Path $BackupDir 'app') (Join-Path $AppDir 'app') -Recurse -Force
     if (Test-Path (Join-Path $BackupDir 'requirements.txt')) { Copy-Item (Join-Path $BackupDir 'requirements.txt') (Join-Path $AppDir 'requirements.txt') -Force }
+    foreach ($file in @('start-c-ebot.ps1','check-for-updates.ps1')) {
+      $backup = Join-Path $BackupDir $file
+      if (Test-Path $backup) { Copy-Item $backup (Join-Path $AppDir $file) -Force }
+    }
   }
   Log "Starting previous version"
-  Start-Process (Join-Path $AppDir 'start-c-ebot.cmd')
+  Start-PreviousVersion
   exit 1
 }
