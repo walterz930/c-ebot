@@ -16,6 +16,7 @@ New-Item -ItemType Directory -Force -Path $AppDir | Out-Null
 Copy-Item (Join-Path $Root 'app') $AppDir -Recurse -Force
 Copy-Item (Join-Path $Root 'requirements.txt') $AppDir -Force
 Copy-Item (Join-Path $Root 'windows\update-standalone.ps1') $AppDir -Force
+Copy-Item (Join-Path $Root 'windows\check-for-updates.ps1') $AppDir -Force
 
 python -m venv $Venv
 & (Join-Path $Venv 'Scripts\python.exe') -m pip install --upgrade pip
@@ -36,7 +37,6 @@ DISCORD_BOT_TOKEN=
 New-Item -ItemType Directory -Force -Path (Join-Path $AppDir 'data') | Out-Null
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
-# Record the exact GitHub commit installed so /update can safely detect newer code.
 try {
   $headers = @{ 'Accept' = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2026-03-10' }
   $commit = Invoke-RestMethod -Uri 'https://api.github.com/repos/walterz930/c-ebot/commits/main' -Headers $headers -TimeoutSec 15
@@ -45,7 +45,6 @@ try {
   Write-Host "Could not record the GitHub commit; c-ebot can initialize update tracking on first /update." -ForegroundColor Yellow
 }
 
-# Use a visible PowerShell launcher so all c-ebot output is shown live while also being saved to the log.
 $Launcher = Join-Path $AppDir 'start-c-ebot.ps1'
 @'
 $ErrorActionPreference = "Continue"
@@ -61,11 +60,16 @@ Add-Content -Path $LogPath -Value "=============================================
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host " c-ebot - live activity console" -ForegroundColor Cyan
 Write-Host " Logs: $LogPath" -ForegroundColor DarkGray
+Write-Host " Checking GitHub for updates after startup..." -ForegroundColor DarkGray
 Write-Host "==================================================" -ForegroundColor Cyan
 
 Set-Location $AppDir
-$python = Join-Path $AppDir ".venv\Scripts\python.exe"
+$checker = Join-Path $AppDir "check-for-updates.ps1"
+if (Test-Path $checker) {
+    Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$checker) -WindowStyle Hidden
+}
 
+$python = Join-Path $AppDir ".venv\Scripts\python.exe"
 & $python -m uvicorn app.main:app --env-file ".env" --host 127.0.0.1 --port 8080 2>&1 | ForEach-Object {
     $line = $_ | Out-String
     Write-Host $line.TrimEnd()
@@ -89,7 +93,6 @@ Write-Host "Press Enter to close this window..." -ForegroundColor DarkGray
 exit $exitCode
 '@ | Set-Content $Launcher -Encoding UTF8
 
-# Keep the launcher in its own visible PowerShell window so live activity is easy to watch.
 Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$Launcher) -WindowStyle Normal
 
 $Ready = $false
