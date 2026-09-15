@@ -20,7 +20,6 @@ class CEBot(discord.Client):
         self.tree = app_commands.CommandTree(self); self.ready_once = False
 
     async def setup_hook(self) -> None:
-        # Register slash commands in alphabetical order in Discord.
         commands = sorted(self.tree.get_commands(), key=lambda command: command.name.lower())
         self.tree.clear_commands(guild=None)
         for command in commands:
@@ -29,8 +28,6 @@ class CEBot(discord.Client):
         settings = load_secrets(); guild_id = settings.get("discord_guild_id", "").strip()
         if guild_id.isdigit():
             guild = discord.Object(id=int(guild_id))
-            # Keep commands guild-scoped for fast updates and remove any stale
-            # guild/global registrations left by previous sync configurations.
             self.tree.clear_commands(guild=guild)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
@@ -74,7 +71,9 @@ async def run_manual(interaction: discord.Interaction, delta: int, actor: str) -
     if not is_admin(interaction): return await deny(interaction)
     await interaction.response.defer(ephemeral=True)
     try:
-        await manager.manual_delta(delta, actor=actor); await interaction.followup.send("Time change applied and verified.", ephemeral=True)
+        await manager.manual_delta(delta, actor=actor)
+        direction = "added" if delta > 0 else "removed"
+        await interaction.followup.send(f"Time {direction} `{format_duration(abs(delta))}` by {actor}; verified Chaster=`{format_duration(manager.state.chaster_seconds)}`, EmlaLock=`{format_duration(manager.state.emlalock_seconds)}`.", ephemeral=True)
     except Exception as exc:
         manager.pause(f"Discord manual change failed: {exc}"); await interaction.followup.send(f"Change failed: {exc}", ephemeral=True); await send_alert(f"⚠️ c-ebot manual change failed: {exc}")
 
@@ -261,7 +260,15 @@ async def send_alert(message: str) -> None:
         except Exception: pass
 
 
-async def start_discord() -> None:
-    settings = load_secrets(); token = settings.get("discord_bot_token", "").strip()
-    if not token or client.is_ready(): return
-    asyncio.create_task(client.start(token))
+async def discord_event(action: str, detail: str) -> None:
+    if action in {"MANUAL_ADD", "MANUAL_SUBTRACT", "PAUSED", "RESUMED_BY", "AUTO_SYNC", "SYNC_ERROR"}:
+        await send_alert(f"**{action}**\n{detail}")
+
+
+set_event_callback(discord_event)
+
+
+def run_discord_bot() -> Optional[asyncio.Task]:
+    token = load_secrets().get("discord_bot_token", "").strip()
+    if not token: return None
+    return asyncio.create_task(client.start(token))
