@@ -45,35 +45,52 @@ try {
   Write-Host "Could not record the GitHub commit; c-ebot can initialize update tracking on first /update." -ForegroundColor Yellow
 }
 
-$Launcher = Join-Path $AppDir 'start-c-ebot.cmd'
-@"
-@echo off
-setlocal
-cd /d "%~dp0"
-if not exist "logs" mkdir "logs"
-echo. >> "logs\c-ebot.log"
-echo ================================================== >> "logs\c-ebot.log"
-echo c-ebot starting %date% %time% >> "logs\c-ebot.log"
-echo ================================================== >> "logs\c-ebot.log"
-call ".venv\Scripts\activate.bat"
-python -m uvicorn app.main:app --env-file ".env" --host 127.0.0.1 --port 8080 >> "logs\c-ebot.log" 2>&1
-set "EXITCODE=%ERRORLEVEL%"
-echo. >> "logs\c-ebot.log"
-echo c-ebot stopped with exit code %EXITCODE% at %date% %time% >> "logs\c-ebot.log"
-if not "%EXITCODE%"=="0" (
-  echo.
-  echo c-ebot stopped because of an error.
-  echo The full error is in:
-  echo %~dp0logs\c-ebot.log
-  echo.
-  type "logs\c-ebot.log"
-  echo.
-  pause
-)
-exit /b %EXITCODE%
-"@ | Set-Content $Launcher -Encoding ASCII
+# Use a visible PowerShell launcher so all c-ebot output is shown live while also being saved to the log.
+$Launcher = Join-Path $AppDir 'start-c-ebot.ps1'
+@'
+$ErrorActionPreference = "Continue"
+$AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$LogPath = Join-Path $AppDir "logs\c-ebot.log"
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $LogPath) | Out-Null
 
-Start-Process $Launcher
+Add-Content -Path $LogPath -Value ""
+Add-Content -Path $LogPath -Value "=================================================="
+Add-Content -Path $LogPath -Value "c-ebot starting $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+Add-Content -Path $LogPath -Value "=================================================="
+
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host " c-ebot - live activity console" -ForegroundColor Cyan
+Write-Host " Logs: $LogPath" -ForegroundColor DarkGray
+Write-Host "==================================================" -ForegroundColor Cyan
+
+Set-Location $AppDir
+$python = Join-Path $AppDir ".venv\Scripts\python.exe"
+
+& $python -m uvicorn app.main:app --env-file ".env" --host 127.0.0.1 --port 8080 2>&1 | ForEach-Object {
+    $line = $_ | Out-String
+    Write-Host $line.TrimEnd()
+    Add-Content -Path $LogPath -Value $line.TrimEnd()
+}
+$exitCode = $LASTEXITCODE
+
+Add-Content -Path $LogPath -Value ""
+Add-Content -Path $LogPath -Value "c-ebot stopped with exit code $exitCode at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+
+Write-Host ""
+if ($exitCode -eq 0) {
+    Write-Host "c-ebot stopped normally." -ForegroundColor Yellow
+} else {
+    Write-Host "c-ebot stopped because of an error (exit code $exitCode)." -ForegroundColor Red
+    Write-Host "Full log: $LogPath" -ForegroundColor Yellow
+}
+Write-Host ""
+Write-Host "Press Enter to close this window..." -ForegroundColor DarkGray
+[void](Read-Host)
+exit $exitCode
+'@ | Set-Content $Launcher -Encoding UTF8
+
+# Keep the launcher in its own visible PowerShell window so live activity is easy to watch.
+Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$Launcher) -WindowStyle Normal
 
 $Ready = $false
 for ($i = 0; $i -lt 20; $i++) {
@@ -86,7 +103,7 @@ for ($i = 0; $i -lt 20; $i++) {
 
 if ($Ready) {
   Start-Process 'http://localhost:8080'
-  Write-Host 'c-ebot is running. The dashboard will open in your browser.' -ForegroundColor Green
+  Write-Host 'c-ebot is running. A live activity PowerShell window is open, and the dashboard will open in your browser.' -ForegroundColor Green
 } else {
   Write-Host 'c-ebot did not start correctly.' -ForegroundColor Red
   Write-Host "Check the startup log: $LogDir\c-ebot.log" -ForegroundColor Yellow
