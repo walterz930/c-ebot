@@ -38,7 +38,10 @@ class CEBot(discord.Client):
 
     async def on_ready(self) -> None:
         if self.ready_once: return
-        self.ready_once = True; manager.log("DISCORD_CONNECTED", f"Logged in as {self.user}")
+        self.ready_once = True
+        logged_in_as = str(self.user)
+        manager.log("DISCORD_CONNECTED", f"Logged in as {logged_in_as}")
+        await send_alert(f"🟢 **c-ebot online**\nLogged in as {logged_in_as}")
 
 
 client = CEBot()
