@@ -26,12 +26,16 @@ def fmt(seconds: int | None) -> str:
     if seconds is None:
         return "—"
     total = max(0, int(seconds))
-    years, rem = divmod(total, 365 * 86400)
-    months, rem = divmod(rem, 30 * 86400)
-    days, rem = divmod(rem, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, secs = divmod(rem, 60)
-    return f"{years} years, {months} months, {days} days, {hours} hours, {minutes} minutes, {secs} seconds"
+    values = [
+        total // (365 * 86400),
+        (total % (365 * 86400)) // (30 * 86400),
+        (total % (30 * 86400)) // 86400,
+        (total % 86400) // 3600,
+        (total % 3600) // 60,
+        total % 60,
+    ]
+    first = next((i for i, value in enumerate(values) if value), len(values) - 1)
+    return ":".join(f"{value:02d}" for value in values[first:])
 
 
 def when(ts: float | None) -> str:
@@ -72,17 +76,17 @@ input:disabled,select:disabled,button:disabled{{background:#eee;color:#777;curso
 
   function format(seconds) {{
     seconds = Math.max(0, Math.floor(seconds));
-    let years = Math.floor(seconds / (365 * 86400));
-    seconds %= 365 * 86400;
-    let months = Math.floor(seconds / (30 * 86400));
-    seconds %= 30 * 86400;
-    const days = Math.floor(seconds / 86400);
-    seconds %= 86400;
-    const hours = Math.floor(seconds / 3600);
-    seconds %= 3600;
-    const minutes = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${{years}} years, ${{months}} months, ${{days}} days, ${{hours}} hours, ${{minutes}} minutes, ${{secs}} seconds`;
+    const values = [
+      Math.floor(seconds / (365 * 86400)),
+      Math.floor((seconds % (365 * 86400)) / (30 * 86400)),
+      Math.floor((seconds % (30 * 86400)) / 86400),
+      Math.floor((seconds % 86400) / 3600),
+      Math.floor((seconds % 3600) / 60),
+      seconds % 60
+    ];
+    let first = values.findIndex(value => value !== 0);
+    if (first === -1) first = values.length - 1;
+    return values.slice(first).map(value => String(value).padStart(2, '0')).join(':');
   }}
 
   function render() {{
