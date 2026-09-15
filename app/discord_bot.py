@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 
 from .secrets import load_secrets
-from .sync_engine import manager, set_event_callback
+from .sync_engine import manager, set_event_callback, format_duration
 from .updater import request_update, installed_commit
 
 
@@ -63,13 +63,7 @@ def seconds_from(amount: int, unit: str) -> int:
 
 
 def format_seconds(value: int | None) -> str:
-    if value is None: return "unknown"
-    value = max(0, int(value)); days, rem = divmod(value, 86400); hours, rem = divmod(rem, 3600); minutes, seconds = divmod(rem, 60)
-    parts = []
-    if days: parts.append(f"{days}d")
-    if hours or days: parts.append(f"{hours}h")
-    if minutes or hours or days: parts.append(f"{minutes}m")
-    parts.append(f"{seconds}s"); return " ".join(parts)
+    return format_duration(value)
 
 
 async def run_manual(interaction: discord.Interaction, delta: int, actor: str) -> None:
@@ -192,7 +186,7 @@ async def permissions(interaction: discord.Interaction) -> None:
 async def nextsync(interaction: discord.Interaction) -> None:
     s = manager.state
     if not s.next_check: return await interaction.response.send_message("The next check is not scheduled yet.")
-    remaining = max(0, int(s.next_check - time.time())); await interaction.response.send_message(f"Next automatic check: <t:{int(s.next_check)}:R> ({remaining}s).")
+    remaining = max(0, int(s.next_check - time.time())); await interaction.response.send_message(f"Next automatic check: <t:{int(s.next_check)}:R> ({format_seconds(remaining)}).")
 
 
 @client.tree.command(name="version", description="Show the installed c-ebot commit")
