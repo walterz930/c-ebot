@@ -52,6 +52,10 @@ def is_admin(interaction: discord.Interaction) -> bool:
     return bool(permissions and permissions.administrator)
 
 
+def discord_actor(interaction: discord.Interaction) -> str:
+    return str(interaction.user.name)
+
+
 async def deny(interaction: discord.Interaction) -> None:
     await interaction.response.send_message("You are not authorized to control c-ebot. You need the Discord Administrator permission.", ephemeral=True)
 
@@ -91,7 +95,7 @@ async def sync_command(interaction: discord.Interaction) -> None:
 
 
 async def adjust_command(interaction: discord.Interaction, amount: int, unit: str, direction: str) -> None:
-    await run_manual(interaction, seconds_from(amount, unit) * (-1 if direction == "subtract" else 1), f"discord:{interaction.user.id}")
+    await run_manual(interaction, seconds_from(amount, unit) * (-1 if direction == "subtract" else 1), discord_actor(interaction))
 
 
 @client.tree.command(name="addtime", description="Add time to both timers")
@@ -113,26 +117,25 @@ async def subtracttime(interaction: discord.Interaction, amount: int, unit: app_
 @client.tree.command(name="pause", description="Pause automatic timer synchronization")
 async def pause_command(interaction: discord.Interaction) -> None:
     if not is_admin(interaction): return await deny(interaction)
-    manager.pause(f"Paused by discord:{interaction.user.id}"); await interaction.response.send_message("Automatic synchronization is now paused.", ephemeral=True)
+    manager.pause(f"Paused by {discord_actor(interaction)}"); await interaction.response.send_message("Automatic synchronization is now paused.", ephemeral=True)
 
 
 @client.tree.command(name="resume", description="Resume automatic timer synchronization")
 async def resume_command(interaction: discord.Interaction) -> None:
     if not is_admin(interaction): return await deny(interaction)
-    manager.resume(); manager.log("RESUMED_BY", f"discord:{interaction.user.id}"); await interaction.response.send_message("Automatic synchronization has been resumed.", ephemeral=True)
+    manager.resume(); manager.log("RESUMED_BY", discord_actor(interaction)); await interaction.response.send_message("Automatic synchronization has been resumed.", ephemeral=True)
 
 
 @client.tree.command(name="emergency", description="Immediately pause automatic synchronization")
 async def emergency(interaction: discord.Interaction) -> None:
     if not is_admin(interaction): return await deny(interaction)
-    manager.pause(f"Emergency stop by discord:{interaction.user.id}"); await interaction.response.send_message("🚨 Automatic synchronization has been stopped.", ephemeral=True); await send_alert(f"🚨 **c-ebot emergency stop**\nAutomatic synchronization was stopped by Discord user {interaction.user.id}.")
+    manager.pause(f"Emergency stop by {discord_actor(interaction)}"); await interaction.response.send_message("🚨 Automatic synchronization has been stopped.", ephemeral=True); await send_alert(f"🚨 **c-ebot emergency stop**\nAutomatic synchronization was stopped by Discord user {discord_actor(interaction)}.")
 
 
 @client.tree.command(name="health", description="Check c-ebot API and Discord health")
 async def health(interaction: discord.Interaction) -> None:
     await interaction.response.defer(ephemeral=True)
-    try:
-        c, e = await manager.read_timers(); api = f"🟢 Chaster `{format_seconds(c)}`\n🟢 EmlaLock `{format_seconds(e)}`"
+    try: c, e = await manager.read_timers(); api = f"🟢 Chaster `{format_seconds(c)}`\n🟢 EmlaLock `{format_seconds(e)}`"
     except Exception as exc: api = f"🔴 API check failed: `{exc}`"
     await interaction.followup.send(f"**c-ebot health**\n{api}\nDiscord: {'🟢 connected' if client.is_ready() else '🔴 disconnected'}", ephemeral=True)
 
@@ -140,7 +143,7 @@ async def health(interaction: discord.Interaction) -> None:
 @client.tree.command(name="testdiscord", description="Test the Discord activity feed")
 async def testdiscord(interaction: discord.Interaction) -> None:
     if not is_admin(interaction): return await deny(interaction)
-    await interaction.response.send_message("Sending a Discord activity test...", ephemeral=True); await send_alert(f"🧪 **c-ebot Discord test**\nTest requested by Discord user {interaction.user.id}.")
+    await interaction.response.send_message("Sending a Discord activity test...", ephemeral=True); await send_alert(f"🧪 **c-ebot Discord test**\nTest requested by Discord user {discord_actor(interaction)}.")
 
 
 @client.tree.command(name="testchaster", description="Test the Chaster API connection")
@@ -229,14 +232,14 @@ class ControlPanel(discord.ui.View):
         except Exception as exc: manager.pause(f"Discord panel sync failed: {exc}"); await interaction.followup.send(f"Sync failed: {exc}", ephemeral=True)
     @discord.ui.button(label="Add 1h", emoji="➕", style=discord.ButtonStyle.success)
     async def add_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if await self._guard(interaction): await run_manual(interaction, 3600, f"discord:{interaction.user.id}")
+        if await self._guard(interaction): await run_manual(interaction, 3600, discord_actor(interaction))
     @discord.ui.button(label="Remove 1h", emoji="➖", style=discord.ButtonStyle.danger)
     async def remove_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if await self._guard(interaction): await run_manual(interaction, -3600, f"discord:{interaction.user.id}")
+        if await self._guard(interaction): await run_manual(interaction, -3600, discord_actor(interaction))
     @discord.ui.button(label="Pause", emoji="⏸️", style=discord.ButtonStyle.secondary)
     async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await self._guard(interaction): return
-        manager.pause(f"Paused by discord:{interaction.user.id}"); await interaction.response.send_message("Automatic synchronization paused.", ephemeral=True)
+        manager.pause(f"Paused by {discord_actor(interaction)}"); await interaction.response.send_message("Automatic synchronization paused.", ephemeral=True)
     @discord.ui.button(label="Resume", emoji="▶️", style=discord.ButtonStyle.secondary)
     async def resume_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await self._guard(interaction): return
@@ -258,27 +261,7 @@ async def send_alert(message: str) -> None:
         except Exception: pass
 
 
-async def discord_activity(action: str, detail: str) -> None:
-    labels = {"AUTO_SYNC": "🔄 **Automatic sync**", "MANUAL_ADD": "➕ **Time added**", "MANUAL_SUBTRACT": "➖ **Time removed**", "PAUSED": "🛑 **Automatic sync paused**", "RESUMED": "▶️ **Automatic sync resumed**", "DISCORD_CONNECTED": "🤖 **c-ebot online**"}
-    message = labels.get(action, f"ℹ️ **c-ebot: {action}**"); await send_alert(f"{message}\n{detail}" if detail else message)
-
-
-_bot_task: Optional[asyncio.Task] = None
-
-
 async def start_discord() -> None:
-    global _bot_task
     settings = load_secrets(); token = settings.get("discord_bot_token", "").strip()
-    if not token: print("[c-ebot] Discord is not configured; continuing without Discord.", flush=True); return
-    if _bot_task and not _bot_task.done(): return
-    set_event_callback(discord_activity)
-    async def runner() -> None:
-        try: await client.start(token)
-        except Exception as exc: print(f"[c-ebot] Discord bot stopped: {exc}", flush=True); await send_alert(f"🔴 **c-ebot Discord bot stopped**\n{exc}")
-    _bot_task = asyncio.create_task(runner())
-
-
-async def stop_discord() -> None:
-    global _bot_task
-    if _bot_task and not _bot_task.done(): await client.close(); _bot_task.cancel()
-    set_event_callback(None); _bot_task = None
+    if not token or client.is_ready(): return
+    asyncio.create_task(client.start(token))
