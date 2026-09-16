@@ -8,36 +8,39 @@ from typing import Optional
 import discord
 from discord import app_commands
 
-from .secrets import load_secrets
+from .secrets import load_secrets, save_secrets
 from .sync_engine import manager, set_event_callback, format_duration
 from .updater import request_update, installed_commit
 
 
 class CEBot(discord.Client):
     def __init__(self) -> None:
-        intents = discord.Intents.none(); intents.guilds = True
+        intents = discord.Intents.none()
+        intents.guilds = True
         super().__init__(intents=intents)
-        self.tree = app_commands.CommandTree(self); self.ready_once = False
+        self.tree = app_commands.CommandTree(self)
+        self.ready_once = False
 
     async def setup_hook(self) -> None:
         commands = sorted(self.tree.get_commands(), key=lambda command: command.name.lower())
+        settings = load_secrets()
+        guild_id = settings.get("discord_guild_id", "").strip()
         self.tree.clear_commands(guild=None)
-        for command in commands:
-            self.tree.add_command(command)
-
-        settings = load_secrets(); guild_id = settings.get("discord_guild_id", "").strip()
+        await self.tree.sync()
         if guild_id.isdigit():
             guild = discord.Object(id=int(guild_id))
             self.tree.clear_commands(guild=guild)
-            self.tree.copy_global_to(guild=guild)
+            for command in commands:
+                self.tree.add_command(command, guild=guild)
             await self.tree.sync(guild=guild)
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync()
         else:
+            for command in commands:
+                self.tree.add_command(command)
             await self.tree.sync()
 
     async def on_ready(self) -> None:
-        if self.ready_once: return
+        if self.ready_once:
+            return
         self.ready_once = True
         logged_in_as = str(self.user)
         manager.log("DISCORD_CONNECTED", f"Logged in as {logged_in_as}")
@@ -62,7 +65,8 @@ async def deny(interaction: discord.Interaction) -> None:
 
 def seconds_from(amount: int, unit: str) -> int:
     multipliers = {"seconds": 1, "minutes": 60, "hours": 3600, "days": 86400, "months": 30 * 86400, "years": 365 * 86400}
-    if amount <= 0 or unit not in multipliers: raise ValueError("Enter a positive amount and a valid time unit.")
+    if amount <= 0 or unit not in multipliers:
+        raise ValueError("Enter a positive amount and a valid time unit.")
     return amount * multipliers[unit]
 
 
@@ -78,7 +82,9 @@ async def run_manual(interaction: discord.Interaction, delta: int, actor: str) -
         direction = "added" if delta > 0 else "removed"
         await interaction.followup.send(f"Time {direction} `{format_duration(abs(delta))}` by {actor}; verified Chaster=`{format_duration(manager.state.chaster_seconds)}`, EmlaLock=`{format_duration(manager.state.emlalock_seconds)}`.", ephemeral=True)
     except Exception as exc:
-        manager.pause(f"Discord manual change failed: {exc}"); await interaction.followup.send(f"Change failed: {exc}", ephemeral=True); await send_alert(f"⚠️ c-ebot manual change failed: {exc}")
+        manager.pause(f"Discord manual change failed: {exc}")
+        await interaction.followup.send(f"Change failed: {exc}", ephemeral=True)
+        await send_alert(f"⚠️ c-ebot manual change failed: {exc}")
 
 
 @client.tree.command(name="status", description="Show c-ebot sync status")
@@ -91,7 +97,8 @@ async def status(interaction: discord.Interaction) -> None:
 async def sync_command(interaction: discord.Interaction) -> None:
     if not is_admin(interaction): return await deny(interaction)
     await interaction.response.defer(ephemeral=True)
-    try: await manager.sync_once(); await interaction.followup.send("Synchronization completed.", ephemeral=True)
+    try:
+        await manager.sync_once(); await interaction.followup.send("Synchronization completed.", ephemeral=True)
     except Exception as exc:
         manager.pause(f"Discord sync failed: {exc}"); await interaction.followup.send(f"Sync failed: {exc}", ephemeral=True); await send_alert(f"⚠️ c-ebot sync failed: {exc}")
 
@@ -116,6 +123,35 @@ async def subtracttime(interaction: discord.Interaction, amount: int, unit: app_
     except ValueError as exc: await interaction.response.send_message(str(exc), ephemeral=True)
 
 
+@client.tree.command(name="setlockid", description="Change the Chaster Lock ID")
+@app_commands.describe(lock_id="The new Chaster Lock ID")
+async def setlockid(interaction: discord.Interaction, lock_id: str) -> None:
+    if not is_admin(interaction): return await deny(interaction)
+    new_lock_id = lock_id.strip()
+    if not new_lock_id or len(new_lock_id) > 200 or any(ch.isspace() for ch in new_lock_id):
+        return await interaction.response.send_message("Enter a valid Chaster Lock ID.", ephemeral=True)
+    try:
+        settings = load_secrets()
+        if not settings.get("chaster_token"):
+            return await interaction.response.send_message("Chaster is not configured yet.", ephemeral=True)
+        old_lock_id = settings.get("chaster_lock_id", "").strip()
+        settings["chaster_lock_id"] = new_lock_id
+        save_secrets(settings)
+        manager.log("CHASTER_LOCK_CHANGED", f"{old_lock_id or '(none)'} -> {new_lock_id} by {discord_actor(interaction)}")
+        manager.state.message = f"Chaster Lock ID changed to {new_lock_id}"
+        manager._save()
+        await interaction.response.send_message(f"Chaster Lock ID changed to `{new_lock_id}`. Running a sync check now...", ephemeral=True)
+        try:
+            await manager.sync_once()
+            await interaction.followup.send(f"Lock ID updated and sync completed. Chaster=`{format_duration(manager.state.chaster_seconds)}`, EmlaLock=`{format_duration(manager.state.emlalock_seconds)}`.", ephemeral=True)
+        except Exception as exc:
+            manager.pause(f"Sync after Chaster Lock ID change failed: {exc}")
+            await interaction.followup.send(f"Lock ID was saved, but the new lock could not be synchronized: {exc}", ephemeral=True)
+            await send_alert(f"⚠️ **Chaster Lock ID changed but sync failed**\n{exc}")
+    except Exception as exc:
+        await interaction.response.send_message(f"Could not change Chaster Lock ID: {exc}", ephemeral=True)
+
+
 @client.tree.command(name="pause", description="Pause automatic timer synchronization")
 async def pause_command(interaction: discord.Interaction) -> None:
     if not is_admin(interaction): return await deny(interaction)
@@ -131,7 +167,8 @@ async def resume_command(interaction: discord.Interaction) -> None:
 @client.tree.command(name="emergency", description="Immediately pause automatic synchronization")
 async def emergency(interaction: discord.Interaction) -> None:
     if not is_admin(interaction): return await deny(interaction)
-    manager.pause(f"Emergency stop by {discord_actor(interaction)}"); await interaction.response.send_message("🚨 Automatic synchronization has been stopped.", ephemeral=True); await send_alert(f"🚨 **c-ebot emergency stop**\nAutomatic synchronization was stopped by Discord user {discord_actor(interaction)}.")
+    actor = discord_actor(interaction)
+    manager.pause(f"Emergency stop by {actor}"); await interaction.response.send_message("🚨 Automatic synchronization has been stopped.", ephemeral=True); await send_alert(f"🚨 **c-ebot emergency stop**\nAutomatic synchronization was stopped by Discord user {actor}.")
 
 
 @client.tree.command(name="health", description="Check c-ebot API and Discord health")
@@ -184,7 +221,7 @@ async def whoami(interaction: discord.Interaction) -> None:
 
 @client.tree.command(name="permissions", description="Show who can control c-ebot")
 async def permissions(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message("**c-ebot control permissions**\n• Discord server Administrators: `authorized`\n• Admin User IDs: `not used`\n• Timer-changing commands: admin-only\n• Updates: admin-only", ephemeral=True)
+    await interaction.response.send_message("**c-ebot control permissions**\n• Discord server Administrators: `authorized`\n• Admin User IDs: `not used`\n• Timer-changing commands: admin-only\n• Lock ID changes: admin-only\n• Updates: admin-only", ephemeral=True)
 
 
 @client.tree.command(name="nextsync", description="Show when the next automatic check is due")
@@ -263,7 +300,7 @@ async def send_alert(message: str) -> None:
 
 
 async def discord_event(action: str, detail: str) -> None:
-    if action in {"MANUAL_ADD", "MANUAL_SUBTRACT", "PAUSED", "RESUMED_BY", "AUTO_SYNC", "SYNC_ERROR"}:
+    if action in {"MANUAL_ADD", "MANUAL_SUBTRACT", "PAUSED", "RESUMED_BY", "AUTO_SYNC", "SYNC_ERROR", "CHASTER_LOCK_CHANGED"}:
         await send_alert(f"**{action}**\n{detail}")
 
 
