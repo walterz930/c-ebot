@@ -48,6 +48,28 @@ Install Python 3.12+ and make sure **Add Python to PATH** is enabled during inst
 
 Download this repository from GitHub using **Code → Download ZIP**, then extract it to a folder on your Windows PC.
 
+### If Windows shows “Open File - Security Warning”
+
+Windows may mark files downloaded from the internet with a security zone marker. Because the launcher is an unsigned local script, Windows may show **Unknown Publisher** even though the file is a script rather than a digitally signed application.
+
+For a trusted copy downloaded from this repository, use the included unblock helper once:
+
+1. Open PowerShell in the extracted c-ebot folder.
+2. Run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\windows\unblock-c-ebot.ps1
+```
+
+3. After it finishes, run `START-C-EBOT.cmd` again.
+
+Alternatively, right-click the downloaded ZIP before extracting it, select **Properties**, tick **Unblock** if shown, and click **Apply**. Then extract the ZIP again.
+
+The helper only removes Windows’ downloaded-file marker from the local c-ebot files. It does not disable Windows Defender, change system-wide execution policy, or bypass antivirus protection.
+
+> A verified publisher name requires a paid or otherwise trusted code-signing certificate. Until c-ebot is distributed with a signed Windows installer, Windows may continue to describe the script publisher as unknown on some systems.
+
 ### Step 3 — Run the installer
 
 Open PowerShell in the extracted c-ebot folder and run:
@@ -235,6 +257,7 @@ c-ebot/
 ├── app/                          # Application source
 ├── windows/
 │   ├── install-standalone.ps1   # Windows installer
+│   ├── unblock-c-ebot.ps1       # Removes Windows download security markers
 │   ├── README.md
 │   └── standalone/               # Windows runtime files
 ├── data/                         # Local runtime data (not committed)
