@@ -145,7 +145,7 @@ async def dashboard() -> str:
     body = f"""
 <div class='card'><h2>Live Time Sync</h2><p><span class='status {status}'>{status}</span></p><p><strong>{html.escape(s.message)}</strong></p><p>Auto Sync: <strong>{'ON' if s.auto_sync else 'OFF'}</strong> · Paused: <strong>{'YES' if s.paused else 'NO'}</strong></p><p>Last check: {when(s.last_check)} · Next check: {when(s.next_check)}</p></div>
 <div class='grid'><div class='card'><h3>Chaster</h3><div id='chaster-timer' class='timer' data-seconds='{'' if s.chaster_seconds is None else int(s.chaster_seconds)}'>{fmt(s.chaster_seconds)}</div><small>Remaining time</small></div><div class='card'><h3>EmlaLock</h3><div id='emlalock-timer' class='timer' data-seconds='{'' if s.emlalock_seconds is None else int(s.emlalock_seconds)}'>{fmt(s.emlalock_seconds)}</div><small>Remaining time</small></div><div class='card'><h3>Highest / Target</h3><div id='target-timer' class='timer' data-seconds='{'' if s.target_seconds is None else int(s.target_seconds)}'>{fmt(s.target_seconds)}</div><small>Normal sync never shortens the higher timer</small></div></div>
-<div class='card'><h3>Controls</h3><div class='actions'><form method='post' action='/sync'><button>Sync Now</button></form><form method='post' action='/toggle'><button>{'Turn Auto Sync Off' if s.auto_sync else 'Turn Auto Sync On'}</button></form><form method='post' action='/resume'><button>Resume</button></form><form method='post' action='/adjust'><div class='time-input'><input name='amount' type='number' min='1' step='1' placeholder='Amount' required><select name='unit'><option value='years'>Years</option><option value='months'>Months</option><option value='days' selected>Days</option><option value='hours'>Hours</option><option value='minutes'>Minutes</option><option value='seconds'>Seconds</option></select></div><button name='direction' value='add'>+ Add to both</button><button name='direction' value='subtract'>− Subtract from both</button></form></div></div>
+<div class='card'><h3>Controls</h3><div class='actions'><form method='post' action='/sync'><button>Sync Now</button></form><form method='post' action='/toggle'><button>{'Turn Auto Sync Off' if s.auto_sync else 'Turn Auto Sync On'}</button></form><form method='post' action='/pause'><button>Pause</button></form><form method='post' action='/resume'><button>Resume</button></form><form method='post' action='/adjust'><div class='time-input'><input name='amount' type='number' min='1' step='1' placeholder='Amount' required><select name='unit'><option value='years'>Years</option><option value='months'>Months</option><option value='days' selected>Days</option><option value='hours'>Hours</option><option value='minutes'>Minutes</option><option value='seconds'>Seconds</option></select></div><button name='direction' value='add'>+ Add to both</button><button name='direction' value='subtract'>− Subtract from both</button></form></div></div>
 <div class='card'><h3>Activity</h3>{''.join(f"<p><small>{when(x.get('time'))}</small> — {html.escape(str(x.get('action','')))} {html.escape(str(x.get('detail','')))}</p>" for x in (s.history or [])[:15]) or '<p>No activity yet.</p>'}</div>"""
     return page("c-ebot — Live Sync", body, refresh=False)
 
@@ -277,6 +277,12 @@ async def toggle():
     manager.state.auto_sync = not manager.state.auto_sync
     if manager.state.auto_sync and not manager.state.paused: manager.state.status = "SYNCING"
     manager.log("AUTO_SYNC_ON" if manager.state.auto_sync else "AUTO_SYNC_OFF")
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/pause")
+async def pause():
+    manager.pause("Paused from dashboard")
     return RedirectResponse("/", status_code=303)
 
 
