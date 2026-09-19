@@ -108,22 +108,38 @@ class SyncManager:
                     await self.sync_once()
             except Exception as exc:
                 self.pause(f"Sync failed: {exc}")
-            self.state.next_check = time.time() + INTERVAL
+            if self.state.auto_sync and not self.state.paused:
+                self.state.next_check = time.time() + INTERVAL
+            else:
+                self.state.next_check = None
             self._save()
             await asyncio.sleep(INTERVAL)
 
     def pause(self, reason: str) -> None:
+        # Pause only the automatic loop. Do not disable the auto-sync setting,
+        # so Resume can reliably turn the same loop back on.
         self.state.paused = True
         self.state.status = "PAUSED"
         self.state.message = reason
         self.state.last_error = reason
+        self.state.next_check = None
         self.log("PAUSED", reason)
 
     def resume(self) -> None:
+        # A previous /toggle could have left auto_sync=False. Resume is an
+        # explicit request to enable automatic synchronization again.
+        self.state.auto_sync = True
         self.state.paused = False
         self.state.status = "SYNCING"
         self.state.message = "Automatic synchronization enabled"
         self.state.last_error = ""
+        self.state.next_check = time.time()
+
+        # Wake the sync engine immediately instead of waiting for the old
+        # interval. The manager lock prevents concurrent sync operations.
+        if self._task and not self._task.done():
+            asyncio.create_task(self.sync_once())
+
         self.log("RESUMED")
 
     async def _get_json(self, client: httpx.AsyncClient, url: str, **kwargs: Any) -> dict[str, Any]:
@@ -240,38 +256,89 @@ class SyncManager:
             self.state.status = "SYNCING"
             self.state.message = "Reading both timers"
             print("[c-ebot] Checking Chaster and EmlaLock timers...", flush=True)
+
+            # Always base the decision on a fresh read of BOTH timers.
+            # Never keep adding the original delta: after every change we
+            # re-read both sides and decide again which one is actually behind.
             c, e = await self.read_timers()
             self.state.chaster_seconds, self.state.emlalock_seconds = c, e
-            self.state.target_seconds = max(c, e)
             self.state.last_check = time.time()
-            print(f"[c-ebot] Timers: Chaster={format_duration(c)} | EmlaLock={format_duration(e)} | Target={format_duration(max(c,e))}", flush=True)
-            if abs(c - e) <= 1:
-                self.state.status = "SYNCED"
-                self.state.message = "Timers synchronized"
-                print("[c-ebot] OK: timers are synchronized.", flush=True)
-                self._save()
-                return
-            delta = e - c
-            s = load_secrets()
-            lower = "Chaster" if c < e else "EmlaLock"
-            self.state.message = f"Extending {lower} by {format_duration(abs(delta))}"
-            print(f"[c-ebot] Adjusting {lower} by {format_duration(abs(delta))} (higher timer is authoritative).", flush=True)
-            async with httpx.AsyncClient(timeout=20) as client:
+
+            tolerance = 2
+            max_corrections = 3
+
+            for attempt in range(max_corrections + 1):
+                diff = c - e
+                print(
+                    f"[c-ebot] Timers: Chaster={format_duration(c)} | "
+                    f"EmlaLock={format_duration(e)} | difference={format_duration(abs(diff))}",
+                    flush=True,
+                )
+
+                if abs(diff) <= tolerance:
+                    self.state.target_seconds = max(c, e)
+                    self.state.status = "SYNCED"
+                    self.state.message = "Timers synchronized"
+                    self._save()
+                    if attempt:
+                        print(
+                            f"[c-ebot] VERIFIED after {attempt} correction(s): "
+                            f"Chaster={format_duration(c)} | EmlaLock={format_duration(e)}",
+                            flush=True,
+                        )
+                    else:
+                        print("[c-ebot] OK: timers are synchronized.", flush=True)
+                    return
+
+                if attempt == max_corrections:
+                    raise SyncError(
+                        f"Could not synchronize after {max_corrections} corrections: "
+                        f"Chaster={format_duration(c)}, EmlaLock={format_duration(e)}"
+                    )
+
+                s = load_secrets()
                 if c < e:
-                    await self._chaster_delta(client, s, delta)
+                    # EmlaLock has more time, so bring Chaster up to the
+                    # CURRENT EmlaLock value. The next read determines whether
+                    # that was enough; do not reuse this delta on another pass.
+                    delta = e - c
+                    lower = "Chaster"
+                    self.state.message = f"Adjusting Chaster by {format_duration(delta)}"
+                    print(
+                        f"[c-ebot] Chaster is behind by {format_duration(delta)}; "
+                        "adjusting it, then re-checking both timers.",
+                        flush=True,
+                    )
+                    async with httpx.AsyncClient(timeout=20) as client:
+                        await self._chaster_delta(client, s, delta)
                 else:
-                    await self._emlalock_delta(client, s, -delta)
-            print("[c-ebot] Change sent. Re-reading both timers for verification...", flush=True)
-            c2, e2 = await self.read_timers()
-            self.state.chaster_seconds, self.state.emlalock_seconds = c2, e2
-            if abs(c2 - e2) > 2:
-                raise SyncError(f"Verification failed: Chaster={format_duration(c2)}, EmlaLock={format_duration(e2)}")
-            self.state.target_seconds = max(c2, e2)
-            self.state.status = "SYNCED"
-            self.state.message = "Timers synchronized and verified"
-            print(f"[c-ebot] VERIFIED: Chaster={format_duration(c2)} | EmlaLock={format_duration(e2)}", flush=True)
-            self.log("AUTO_SYNC", f"{lower} extended by {format_duration(abs(delta))}; verified Chaster={format_duration(c2)}, EmlaLock={format_duration(e2)}")
-            self._save()
+                    # Chaster has more time, so bring EmlaLock up to the
+                    # CURRENT Chaster value. This can subtract as well as add
+                    # depending on the sign of the correction.
+                    delta = c - e
+                    lower = "EmlaLock"
+                    self.state.message = f"Adjusting EmlaLock by {format_duration(delta)}"
+                    print(
+                        f"[c-ebot] EmlaLock is behind by {format_duration(delta)}; "
+                        "adjusting it, then re-checking both timers.",
+                        flush=True,
+                    )
+                    async with httpx.AsyncClient(timeout=20) as client:
+                        await self._emlalock_delta(client, s, delta)
+
+                # Critical: fetch BOTH APIs again after every adjustment.
+                # The live timers continue counting down while the request is
+                # in flight, so the next correction must use the new values.
+                print("[c-ebot] Change sent. Re-reading both timers...", flush=True)
+                c, e = await self.read_timers()
+                self.state.chaster_seconds, self.state.emlalock_seconds = c, e
+                self.state.last_check = time.time()
+
+                self.log(
+                    "AUTO_SYNC_CORRECTION",
+                    f"{lower} adjusted; rechecked Chaster={format_duration(c)}, "
+                    f"EmlaLock={format_duration(e)}",
+                )
 
     async def manual_delta(self, delta: int, actor: str = "dashboard") -> None:
         if delta == 0:
@@ -295,7 +362,6 @@ class SyncManager:
             self.state.target_seconds = max(c, e)
             self.state.status = "SYNCED"
             self.state.message = "Manual change applied and verified"
-            self.state.paused = False
             print(f"[c-ebot] VERIFIED manual change: Chaster={format_duration(c)} | EmlaLock={format_duration(e)}", flush=True)
             self.log("MANUAL_ADD" if delta > 0 else "MANUAL_SUBTRACT", f"{format_duration(abs(delta))} by {actor}; verified Chaster={format_duration(c)}, EmlaLock={format_duration(e)}")
             self._save()
