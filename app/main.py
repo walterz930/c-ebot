@@ -167,7 +167,7 @@ async def setup_form() -> str:
     discord_configured = bool(s.get("discord_bot_token"))
     client_id = s.get("discord_application_id", "")
     invite = f"https://discord.com/oauth2/authorize?client_id={client_id}&scope=bot%20applications.commands&permissions=68608" if client_id.isdigit() else ""
-    lock_note = "<div class='card danger'><strong>Saved credentials are locked individually.</strong><p>Any credential already saved cannot be changed until Factory Reset. Credentials that have not been configured remain open so they can be added later.</p></div>" if configured else ""
+    lock_note = "<div class='card danger'><strong>Saved credentials are protected.</strong><p>Credentials remain locked after setup, but the Chaster Lock ID can be changed at any time from this page or with the Discord <code>/setlockid</code> command.</p></div>" if configured else ""
     save_button = "<button type='submit'>Save / configure available fields</button>"
 
     body = (
@@ -178,9 +178,8 @@ async def setup_form() -> str:
         + "<label>Developer token (wearer / primary account)<br><input name='chaster_token' "
         + attrs("chaster_token", True, True)
         + '></label><br><br>'
-        + "<label>Lock ID<br><input name='chaster_lock_id' "
-        + attrs("chaster_lock_id", True)
-        + '></label><hr><h4>Chaster permissions required</h4>'
+        + "<label>Lock ID<br><input name='chaster_lock_id' type='text' autocomplete='off' value='" + html.escape(str(s.get("chaster_lock_id", "")), quote=True) + "' placeholder='Enter Chaster Lock ID' required></label><br><br>"
+        + "<button type='submit' formaction='/set-lock-id' formmethod='post'>Change Chaster Lock ID</button><hr><h4>Chaster permissions required</h4>'
         + "<p><strong>For normal sync/add-time:</strong> the API token needs the <code>locks</code> scope and the lock contract must grant the token's account <strong>Add time</strong>.</p>"
         + "<p><strong>For subtract-time:</strong> the account making the Chaster request must have <strong>Remove time</strong>. Chaster's Standard preset normally grants Remove time to the keyholder, not the wearer.</p>"
         + "<label>Chaster keyholder access token (required if this bot must remove Chaster time as keyholder)<br><input name='chaster_keyholder_token' "
@@ -270,6 +269,32 @@ async def sync_now():
     try: await manager.sync_once()
     except Exception as exc: manager.pause(f"Sync failed: {exc}")
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/set-lock-id")
+async def set_lock_id(chaster_lock_id: str = Form("")):
+    new_lock_id = chaster_lock_id.strip()
+    if not new_lock_id or len(new_lock_id) > 200 or any(ch.isspace() for ch in new_lock_id):
+        return HTMLResponse(page("Invalid Lock ID", "<div class='card danger'><h2>Invalid Chaster Lock ID</h2><p>Enter a non-empty Lock ID without spaces.</p><a href='/setup'>Back to Setup</a></div>"), status_code=400)
+    try:
+        settings = load_secrets()
+        if not settings.get("chaster_token"):
+            raise ValueError("Chaster is not configured yet.")
+        old_lock_id = settings.get("chaster_lock_id", "").strip()
+        if old_lock_id == new_lock_id:
+            return RedirectResponse("/setup", status_code=303)
+        settings["chaster_lock_id"] = new_lock_id
+        save_secrets(settings)
+        manager.log("CHASTER_LOCK_CHANGED", f"{old_lock_id or '(none)'} -> {new_lock_id} via web UI")
+        manager.state.message = f"Chaster Lock ID changed to {new_lock_id}"
+        manager._save()
+        try:
+            await manager.sync_once()
+        except Exception as exc:
+            manager.pause(f"Sync after Chaster Lock ID change failed: {exc}")
+        return RedirectResponse("/", status_code=303)
+    except Exception as exc:
+        return HTMLResponse(page("Lock ID change failed", f"<div class='card danger'><h2>Could not change Chaster Lock ID</h2><p>{html.escape(str(exc))}</p><a href='/setup'>Back to Setup</a></div>"), status_code=400)
 
 
 @app.post("/toggle")
