@@ -108,22 +108,38 @@ class SyncManager:
                     await self.sync_once()
             except Exception as exc:
                 self.pause(f"Sync failed: {exc}")
-            self.state.next_check = time.time() + INTERVAL
+            if self.state.auto_sync and not self.state.paused:
+                self.state.next_check = time.time() + INTERVAL
+            else:
+                self.state.next_check = None
             self._save()
             await asyncio.sleep(INTERVAL)
 
     def pause(self, reason: str) -> None:
+        # Pause only the automatic loop. Do not disable the auto-sync setting,
+        # so Resume can reliably turn the same loop back on.
         self.state.paused = True
         self.state.status = "PAUSED"
         self.state.message = reason
         self.state.last_error = reason
+        self.state.next_check = None
         self.log("PAUSED", reason)
 
     def resume(self) -> None:
+        # A previous /toggle could have left auto_sync=False. Resume is an
+        # explicit request to enable automatic synchronization again.
+        self.state.auto_sync = True
         self.state.paused = False
         self.state.status = "SYNCING"
         self.state.message = "Automatic synchronization enabled"
         self.state.last_error = ""
+        self.state.next_check = time.time()
+
+        # Wake the sync engine immediately instead of waiting for the old
+        # interval. The manager lock prevents concurrent sync operations.
+        if self._task and not self._task.done():
+            asyncio.create_task(self.sync_once())
+
         self.log("RESUMED")
 
     async def _get_json(self, client: httpx.AsyncClient, url: str, **kwargs: Any) -> dict[str, Any]:
@@ -295,7 +311,6 @@ class SyncManager:
             self.state.target_seconds = max(c, e)
             self.state.status = "SYNCED"
             self.state.message = "Manual change applied and verified"
-            self.state.paused = False
             print(f"[c-ebot] VERIFIED manual change: Chaster={format_duration(c)} | EmlaLock={format_duration(e)}", flush=True)
             self.log("MANUAL_ADD" if delta > 0 else "MANUAL_SUBTRACT", f"{format_duration(abs(delta))} by {actor}; verified Chaster={format_duration(c)}, EmlaLock={format_duration(e)}")
             self._save()
