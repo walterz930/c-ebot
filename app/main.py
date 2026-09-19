@@ -179,7 +179,7 @@ async def setup_form() -> str:
         + attrs("chaster_token", True, True)
         + '></label><br><br>'
         + "<label>Lock ID<br><input name='chaster_lock_id' type='text' autocomplete='off' value='" + html.escape(str(s.get("chaster_lock_id", "")), quote=True) + "' placeholder='Enter Chaster Lock ID' required></label><br><br>"
-        + "<button type='submit' formaction='/set-lock-id' formmethod='post'>Change Chaster Lock ID</button><hr><h4>Chaster permissions required</h4>'
+        + "<button type='submit' formaction='/set-lock-id' formmethod='post'>Change Chaster Lock ID</button><hr><h4>Chaster permissions required</h4>"
         + "<p><strong>For normal sync/add-time:</strong> the API token needs the <code>locks</code> scope and the lock contract must grant the token's account <strong>Add time</strong>.</p>"
         + "<p><strong>For subtract-time:</strong> the account making the Chaster request must have <strong>Remove time</strong>. Chaster's Standard preset normally grants Remove time to the keyholder, not the wearer.</p>"
         + "<label>Chaster keyholder access token (required if this bot must remove Chaster time as keyholder)<br><input name='chaster_keyholder_token' "
